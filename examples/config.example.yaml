@@ -1,0 +1,30 @@
+# Example CryptEscrow configuration file
+# Location: C:\ProgramData\CryptEscrow\config.yaml
+
+server:
+  # Crypt Server URL (required)
+  # Can also be set via CRYPT_ESCROW_SERVER_URL environment variable
+  url: https://crypt.example.com
+  
+  # Verify TLS certificates (default: true)
+  verify_ssl: true
+  
+  # HTTP request timeout in seconds (default: 30)
+  timeout_seconds: 30
+  
+  # Number of retry attempts for failed requests (default: 3)
+  retry_attempts: 3
+
+escrow:
+  # Secret type sent to server (default: recovery_key)
+  secret_type: recovery_key
+  
+  # Automatically rotate key when server requests (default: true)
+  auto_rotate: true
+  
+  # Remove old recovery protectors after rotation (default: true)
+  cleanup_old_protectors: true
+
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR (default: INFO)
+  level: INFO
