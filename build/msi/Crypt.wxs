@@ -32,7 +32,7 @@
                   Directory="INSTALLFOLDER" 
                   Execute="deferred" 
                   Impersonate="no"
-                  ExeCommand=\"[INSTALLFOLDER]checkin.exe register-task --frequency hourly\"
+                  ExeCommand="[INSTALLFOLDER]checkin.exe register-task --frequency hourly"
                   Return="ignore" />
     
     <InstallExecuteSequence>
