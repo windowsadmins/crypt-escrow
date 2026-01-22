@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Crypt-arm64</id>
+    <version>{{VERSION}}</version>
+    <title>Crypt - BitLocker Key Escrow (ARM64)</title>
+    <authors>Windows Admins Community</authors>
+    <owners>Windows Admins Community</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <license type="expression">MIT</license>
+    <projectUrl>https://github.com/windowsadmins/crypt-escrow</projectUrl>
+    <description>BitLocker recovery key escrow to Crypt Server with key rotation support (ARM64)</description>
+    <copyright>Copyright (c) 2026 Windows Admins. MIT License.</copyright>
+    <tags>bitlocker crypt escrow security windows arm64</tags>
+  </metadata>
+  <files>
+    <file src="..\..\dist\arm64\crypt.exe" target="tools\crypt.exe" />
+  </files>
+</package>

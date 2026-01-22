@@ -1,0 +1,31 @@
+name: Crypt
+display_name: Crypt - BitLocker Key Escrow
+version: 2026.01.21.0927
+description: BitLocker recovery key escrow to Crypt Server with key rotation support
+category: Security
+developer: Windows Admins Community
+catalogs:
+  - Testing
+  - Production
+supported_architectures:
+  - x64
+unattended_install: true
+unattended_uninstall: false
+installer:
+  type: pkg
+  size: 7634854
+  location: /security/Crypt-x64-2026.01.21.0927.pkg
+  hash: d5ae714d40e8149b15f67489e738a90d715f9b5d9d8a8e8a2bfb2e1f1eebb934
+installs:
+  - type: file
+    path: 'C:\Program Files\Crypt\crypt.exe'
+    md5checksum: '6ac875b47c06c979a3a5ddbdf4fc4544'
+    version: '2026.01.21.0927'
+preinstall_script: |
+  # Set Crypt Server URL before installation
+  [Environment]::SetEnvironmentVariable('CRYPT_ESCROW_SERVER_URL', 'https://crypt.ecuad.ca', 'Machine')
+  Write-Host "Configured Crypt Server: https://crypt.ecuad.ca" -ForegroundColor Green
+postinstall_script: |
+  # Register daily scheduled task for automatic key rotation
+  & 'C:\Program Files\Crypt\crypt.exe' register-task --frequency daily
+  Write-Host "Registered Crypt daily task" -ForegroundColor Green

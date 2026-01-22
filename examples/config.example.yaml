@@ -1,0 +1,72 @@
+# Example CryptEscrow configuration file
+# Location: C:\ProgramData\ManagedEncryption\config.yaml
+# 
+# Configuration hierarchy (highest to lowest priority):
+# 1. Command-line options
+# 2. Environment variables (CRYPT_ESCROW_*, CRYPT_API_KEY, etc.)
+# 3. Registry (CSP/OMA-URI from Intune)
+#    - HKLM\SOFTWARE\Policies\Crypt\ManagedEncryption
+#    - HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\Crypt~Policy~ManagedEncryption
+# 4. This YAML file
+
+server:
+  # Crypt Server URL (required)
+  # Can also be set via CRYPT_ESCROW_SERVER_URL environment variable
+  url: https://crypt.example.com
+  
+  # Verify TLS certificates (default: true)
+  verify_ssl: true
+  
+  # HTTP request timeout in seconds (default: 30)
+  timeout_seconds: 30
+  
+  # Number of retry attempts for failed requests (default: 3)
+  retry_attempts: 3
+
+  # Authentication configuration
+  # Supports API key and/or mTLS (mutual TLS) authentication
+  auth:
+    # --- API Key Authentication ---
+    # API key/token for server authentication
+    # Can also be set via CRYPT_API_KEY environment variable
+    # api_key: your-secret-api-key-here
+    
+    # Custom header name for API key (default: X-API-Key)
+    # Can also be set via CRYPT_API_KEY_HEADER environment variable
+    api_key_header: X-API-Key
+    
+    # --- Mutual TLS (mTLS) Authentication ---
+    # Similar to Mac Crypt's CommonNameForEscrow feature
+    # Enable mutual TLS using client certificate from Windows Certificate Store
+    # Can also be set via CRYPT_USE_MTLS environment variable
+    use_mtls: false
+    
+    # Certificate subject name (CN) to find in Windows Certificate Store
+    # Example: "crypt-client.example.com" or "ECUAD Crypt Client"
+    # Can also be set via CRYPT_CERT_SUBJECT environment variable
+    # certificate_subject: crypt-client.example.com
+    
+    # Certificate thumbprint (alternative to subject name, more precise)
+    # Use 'certutil -store My' to list certificates and their thumbprints
+    # Can also be set via CRYPT_CERT_THUMBPRINT environment variable
+    # certificate_thumbprint: 1234567890ABCDEF1234567890ABCDEF12345678
+    
+    # Certificate store location: CurrentUser or LocalMachine (default: LocalMachine)
+    certificate_store_location: LocalMachine
+    
+    # Certificate store name: My, Root, TrustedPeople, etc. (default: My)
+    certificate_store_name: My
+
+escrow:
+  # Secret type sent to server (default: recovery_key)
+  secret_type: recovery_key
+  
+  # Automatically rotate key when server requests (default: true)
+  auto_rotate: true
+  
+  # Remove old recovery protectors after rotation (default: true)
+  cleanup_old_protectors: true
+
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR (default: INFO)
+  level: INFO
