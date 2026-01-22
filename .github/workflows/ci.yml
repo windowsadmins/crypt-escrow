@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        runtime: [win-x64, win-arm64]
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore src/CryptEscrow/CryptEscrow.csproj
+
+      - name: Build
+        run: dotnet build src/CryptEscrow/CryptEscrow.csproj -c Release --no-restore
+
+      - name: Publish
+        run: |
+          dotnet publish src/CryptEscrow/CryptEscrow.csproj -c Release -r ${{ matrix.runtime }} --self-contained -o publish/${{ matrix.runtime }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: crypt-${{ matrix.runtime }}
+          path: publish/${{ matrix.runtime }}/crypt.exe
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: crypt-win-x64
+          path: release/x64
+
+      - name: Download ARM64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: crypt-win-arm64
+          path: release/arm64
+
+      - name: Rename artifacts
+        run: |
+          mv release/x64/crypt.exe release/crypt-x64.exe
+          mv release/arm64/crypt.exe release/crypt-arm64.exe
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            release/crypt-x64.exe
+            release/crypt-arm64.exe
+          generate_release_notes: true

@@ -1,0 +1,26 @@
+<Project Sdk="WixToolset.Sdk/6.0.1">
+  <PropertyGroup>
+    <OutputName>Crypt-$(Platform)</OutputName>
+    <OutputType>Package</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.0</ProductVersion>
+    <BinDir Condition="'$(BinDir)' == ''">$(MSBuildProjectDirectory)\..\..\release\$(Platform)</BinDir>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <DefineConstants>BinDir=$(BinDir);ProductVersion=$(ProductVersion)</DefineConstants>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Heat" Version="6.0.1" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <Compile Include="Crypt.wxs" />
+  </ItemGroup>
+</Project>
