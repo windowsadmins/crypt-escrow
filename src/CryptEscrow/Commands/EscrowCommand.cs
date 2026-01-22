@@ -60,7 +60,19 @@ public static class EscrowCommand
                 return ExitCodes.NoRecoveryProtector;
             }
 
-            // Check if already escrowed
+            // Check if we should escrow based on interval
+            if (!force && !ConfigService.ShouldEscrowNow())
+            {
+                var lastEscrow = ConfigService.GetLastEscrowTimestamp();
+                var intervalHours = ConfigService.GetKeyEscrowIntervalHours();
+                var nextEscrow = lastEscrow?.AddHours(intervalHours);
+                
+                Log.Information("Escrow interval not elapsed. Last escrow: {LastEscrow}, Next escrow: {NextEscrow}", 
+                    lastEscrow, nextEscrow);
+                return ExitCodes.AlreadyEscrowed;
+            }
+
+            // Check if already escrowed (same protector)
             if (!force)
             {
                 var lastProtectorId = ConfigService.GetLastEscrowedProtectorId();
