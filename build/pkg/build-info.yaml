@@ -2,7 +2,7 @@ product:
   name: Crypt
   version: {{VERSION}}
   identifier: ca.ecuad.crypt
-  developer: Windows Admins Community
+  developer: Windows Admins Open Source
   description: BitLocker recovery key escrow to Crypt Server with key rotation support
   architecture: {{ARCHITECTURE}}
 install_location: 'C:\Program Files\Crypt'
