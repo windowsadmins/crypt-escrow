@@ -54,7 +54,7 @@ logging:
 
 # Register scheduled task for automatic key rotation
 try {
-    $cryptExe = Join-Path $installPath 'crypt.exe'
+    $cryptExe = Join-Path $installPath 'checkin.exe'
     if (Test-Path $cryptExe) {
         Write-Host "Registering daily scheduled task..." -ForegroundColor Cyan
         & $cryptExe register-task --frequency daily 2>&1 | Out-Null
@@ -67,7 +67,7 @@ try {
 }
 
 Write-Host "`nCrypt installation complete!" -ForegroundColor Green
-Write-Host "Usage: crypt --help" -ForegroundColor Cyan
+Write-Host "Usage: checkin --help" -ForegroundColor Cyan
 if (-not (Test-Path $configFile)) {
-    Write-Host "Configure: crypt config set server.url https://your-crypt-server" -ForegroundColor Yellow
+    Write-Host "Configure: checkin config set server.url https://your-crypt-server" -ForegroundColor Yellow
 }

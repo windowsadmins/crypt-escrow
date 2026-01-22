@@ -231,14 +231,14 @@ For Intune proactive remediation compatibility:
 ### Detection Script
 
 ```powershell
-$result = & "C:\Program Files\Crypt\crypt.exe" verify
+$result = & "C:\Program Files\Crypt\checkin.exe" verify
 exit $LASTEXITCODE
 ```
 
 ### Remediation Script
 
 ```powershell
-$result = & "C:\Program Files\Crypt\crypt.exe" escrow
+$result = & "C:\Program Files\Crypt\checkin.exe" escrow
 exit $LASTEXITCODE
 ```
 

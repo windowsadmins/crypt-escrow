@@ -10,7 +10,7 @@
     <SelfContained>true</SelfContained>
     <PublishTrimmed>true</PublishTrimmed>
     <TrimMode>partial</TrimMode>
-    <AssemblyName>crypt</AssemblyName>
+    <AssemblyName>checkin</AssemblyName>
     <RootNamespace>CryptEscrow</RootNamespace>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Authors>Windows Admins</Authors>

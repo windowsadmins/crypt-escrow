@@ -400,21 +400,21 @@ if ($Build) {
         }
         
         # Find and copy the built executable
-        $builtExe = Get-ChildItem -Path $publishDir -Filter "crypt.exe" -ErrorAction SilentlyContinue
+        $builtExe = Get-ChildItem -Path $publishDir -Filter "checkin.exe" -ErrorAction SilentlyContinue
         if ($builtExe) {
             $arch = if ($rid -match 'x64') { 'x64' } elseif ($rid -match 'arm64') { 'arm64' } else { $rid }
             $archDir = Join-Path $distDir $arch
             if (-not (Test-Path $archDir)) {
                 New-Item -ItemType Directory -Path $archDir -Force | Out-Null
             }
-            $destPath = Join-Path $archDir "crypt.exe"
+            $destPath = Join-Path $archDir "checkin.exe"
             
             Copy-Item $builtExe.FullName $destPath -Force
             $filesToSign.Add($destPath)
             
-            Write-Log "Built: $arch\crypt.exe ($('{0:N2}' -f ($builtExe.Length / 1MB)) MB)" "SUCCESS"
+            Write-Log "Built: $arch\checkin.exe ($('{0:N2}' -f ($builtExe.Length / 1MB)) MB)" "SUCCESS"
         } else {
-            Write-Log "Could not find crypt.exe in publish output for $rid" "ERROR"
+            Write-Log "Could not find checkin.exe in publish output for $rid" "ERROR"
             exit 1
         }
     }
@@ -554,7 +554,7 @@ if ($Nupkg) {
         New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
         
         # Copy binary to tools directory
-        $cryptExe = Join-Path $distDir "$arch\crypt.exe"
+        $cryptExe = Join-Path $distDir "$arch\checkin.exe"
         if (Test-Path $cryptExe) {
             Copy-Item $cryptExe $toolsDir -Force
         }
@@ -594,7 +594,7 @@ if ($Pkg) {
     $archs = @("x64", "arm64")
     foreach ($arch in $archs) {
         $archDir = Join-Path $distDir $arch
-        $cryptExe = Join-Path $archDir "crypt.exe"
+        $cryptExe = Join-Path $archDir "checkin.exe"
         
         if (-not (Test-Path $cryptExe)) {
             Write-Log "Binary not found: $cryptExe - skipping .pkg" "WARNING"
@@ -665,7 +665,7 @@ if ($Deploy) {
         
         $pkgSize = (Get-Item $pkgPath).Length
         $pkgHash = (Get-FileHash $pkgPath -Algorithm SHA256).Hash.ToLower()
-        $cryptExe = Join-Path $distDir "$arch\crypt.exe"
+        $cryptExe = Join-Path $distDir "$arch\checkin.exe"
         $cryptHash = if (Test-Path $cryptExe) { (Get-FileHash $cryptExe -Algorithm MD5).Hash.ToLower() } else { "" }
         
         $pkginfoPath = Join-Path $deployDir "Crypt-$arch-$timestamp.yaml"
@@ -691,7 +691,7 @@ installer:
   hash: $pkgHash
 installs:
   - type: file
-    path: 'C:\Program Files\Crypt\crypt.exe'
+    path: 'C:\Program Files\Crypt\checkin.exe'
     md5checksum: '$cryptHash'
     version: '$timestamp'
 preinstall_script: |
@@ -700,7 +700,7 @@ preinstall_script: |
   Write-Host "Configured Crypt Server: $CryptServer" -ForegroundColor Green
 postinstall_script: |
   # Register daily scheduled task for automatic key rotation
-  & 'C:\Program Files\Crypt\crypt.exe' register-task --frequency daily
+  & 'C:\Program Files\Crypt\checkin.exe' register-task --frequency daily
   Write-Host "Registered Crypt daily task" -ForegroundColor Green
 "@
         Set-Content -Path $pkginfoPath -Value $pkginfo -Encoding UTF8

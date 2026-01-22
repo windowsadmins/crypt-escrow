@@ -36,7 +36,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: crypt-${{ matrix.runtime }}
-          path: publish/${{ matrix.runtime }}/crypt.exe
+          path: publish/${{ matrix.runtime }}/checkin.exe
 
   release:
     needs: build
@@ -60,13 +60,13 @@ jobs:
 
       - name: Rename artifacts
         run: |
-          mv release/x64/crypt.exe release/crypt-x64.exe
-          mv release/arm64/crypt.exe release/crypt-arm64.exe
+          mv release/x64/checkin.exe release/checkin-x64.exe
+          mv release/arm64/checkin.exe release/checkin-arm64.exe
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            release/crypt-x64.exe
-            release/crypt-arm64.exe
+            release/checkin-x64.exe
+            release/checkin-arm64.exe
           generate_release_notes: true

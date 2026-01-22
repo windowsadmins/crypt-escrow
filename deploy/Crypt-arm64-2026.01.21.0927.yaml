@@ -18,7 +18,7 @@ installer:
   hash: ec61ec22d91b986a24a9eef157c3dac6dd3db9d6a665877ee20d0e789af2f8e0
 installs:
   - type: file
-    path: 'C:\Program Files\Crypt\crypt.exe'
+    path: 'C:\Program Files\Crypt\checkin.exe'
     md5checksum: 'c027e608e2b9c98a6fb0840ec5f7afa3'
     version: '2026.01.21.0927'
 preinstall_script: |
@@ -27,5 +27,5 @@ preinstall_script: |
   Write-Host "Configured Crypt Server: https://crypt.ecuad.ca" -ForegroundColor Green
 postinstall_script: |
   # Register daily scheduled task for automatic key rotation
-  & 'C:\Program Files\Crypt\crypt.exe' register-task --frequency daily
+  & 'C:\Program Files\Crypt\checkin.exe' register-task --frequency daily
   Write-Host "Registered Crypt daily task" -ForegroundColor Green
