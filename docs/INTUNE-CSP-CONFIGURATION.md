@@ -159,10 +159,10 @@ Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Cr
 
 ```powershell
 # Run in check mode to see current configuration
-& 'C:\Program Files\Crypt\crypt.exe' check
+& 'C:\Program Files\Crypt\checkin.exe' check
 
 # Run with verbose logging to see config source
-& 'C:\Program Files\Crypt\crypt.exe' escrow --verbose
+& 'C:\Program Files\Crypt\checkin.exe' escrow --verbose
 ```
 
 ### View Logs

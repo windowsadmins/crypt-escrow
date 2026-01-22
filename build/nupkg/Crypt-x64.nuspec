@@ -14,6 +14,6 @@
     <tags>bitlocker crypt escrow security windows x64</tags>
   </metadata>
   <files>
-    <file src="..\..\dist\x64\crypt.exe" target="tools\crypt.exe" />
+    <file src="..\..\dist\x64\checkin.exe" target="tools\checkin.exe" />
   </files>
 </package>

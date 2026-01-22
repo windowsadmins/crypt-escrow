@@ -18,7 +18,7 @@
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Crypt">
         <Component Id="CryptExe" Bitness="always64">
-          <File Id="crypt.exe" Source="$(var.BinDir)\crypt.exe" KeyPath="yes" />
+          <File Id="checkin.exe" Source="$(var.BinDir)\checkin.exe" KeyPath="yes" />
           <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]" Permanent="no" Part="last" Action="set" System="yes" />
         </Component>
       </Directory>
@@ -32,7 +32,7 @@
                   Directory="INSTALLFOLDER" 
                   Execute="deferred" 
                   Impersonate="no"
-                  ExeCommand="[INSTALLFOLDER]crypt.exe register-task --frequency daily"
+                  ExeCommand="[INSTALLFOLDER]checkin.exe register-task --frequency daily"
                   Return="ignore" />
     
     <InstallExecuteSequence>
