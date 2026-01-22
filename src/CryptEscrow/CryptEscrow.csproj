@@ -14,7 +14,7 @@
     <RootNamespace>CryptEscrow</RootNamespace>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Authors>Windows Admins</Authors>
-    <Company>Windows Admins Community</Company>
+    <Company>Windows Admins Open Source</Company>
     <Product>CryptEscrow</Product>
     <Description>BitLocker recovery key escrow to Crypt Server with key rotation support</Description>
     <Copyright>Copyright (c) 2026 Windows Admins. MIT License.</Copyright>

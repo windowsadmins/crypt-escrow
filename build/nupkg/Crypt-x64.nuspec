@@ -4,8 +4,8 @@
     <id>Crypt-x64</id>
     <version>{{VERSION}}</version>
     <title>Crypt - BitLocker Key Escrow (x64)</title>
-    <authors>Windows Admins Community</authors>
-    <owners>Windows Admins Community</owners>
+    <authors>Windows Admins Open Source</authors>
+    <owners>Windows Admins Open Source</owners>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <license type="expression">MIT</license>
     <projectUrl>https://github.com/windowsadmins/crypt-escrow</projectUrl>

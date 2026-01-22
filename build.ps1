@@ -676,7 +676,7 @@ display_name: Crypt - BitLocker Key Escrow
 version: $timestamp
 description: BitLocker recovery key escrow to Crypt Server with key rotation support
 category: Security
-developer: Windows Admins Community
+developer: Windows Admins Open Source
 catalogs:
   - Testing
   - Production
