@@ -457,6 +457,55 @@ public class ConfigService
     {
         Directory.CreateDirectory(ConfigDir);
         File.WriteAllText(MarkerPath, protectorId);
+        SaveLastEscrowTimestamp();
+    }
+
+    /// <summary>
+    /// Saves the current timestamp as the last successful escrow time.
+    /// </summary>
+    public static void SaveLastEscrowTimestamp()
+    {
+        Directory.CreateDirectory(ConfigDir);
+        var timestampPath = Path.Combine(ConfigDir, "last_escrow.txt");
+        File.WriteAllText(timestampPath, DateTimeOffset.UtcNow.ToString("o"));
+    }
+
+    /// <summary>
+    /// Gets the last escrow timestamp, or null if never escrowed.
+    /// </summary>
+    public static DateTimeOffset? GetLastEscrowTimestamp()
+    {
+        var timestampPath = Path.Combine(ConfigDir, "last_escrow.txt");
+        if (!File.Exists(timestampPath))
+            return null;
+
+        try
+        {
+            var content = File.ReadAllText(timestampPath);
+            return DateTimeOffset.Parse(content);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Failed to read last escrow timestamp");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Checks if enough time has elapsed since the last escrow based on the configured interval.
+    /// </summary>
+    /// <returns>True if escrow should proceed, false if still within the interval window.</returns>
+    public static bool ShouldEscrowNow()
+    {
+        var lastEscrow = GetLastEscrowTimestamp();
+        if (!lastEscrow.HasValue)
+            return true; // Never escrowed before
+
+        var intervalHours = GetKeyEscrowIntervalHours();
+        var nextEscrowTime = lastEscrow.Value.AddHours(intervalHours);
+        var now = DateTimeOffset.UtcNow;
+
+        return now >= nextEscrowTime;
     }
 
     public static string GetConfigPath() => ConfigPath;

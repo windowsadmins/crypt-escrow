@@ -56,8 +56,8 @@ logging:
 try {
     $cryptExe = Join-Path $installPath 'checkin.exe'
     if (Test-Path $cryptExe) {
-        Write-Host "Registering daily scheduled task..." -ForegroundColor Cyan
-        & $cryptExe register-task --frequency daily 2>&1 | Out-Null
+        Write-Host "Registering hourly scheduled task..." -ForegroundColor Cyan
+        & $cryptExe register-task --frequency hourly 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
             Write-Host "Scheduled task registered successfully" -ForegroundColor Green
         }
