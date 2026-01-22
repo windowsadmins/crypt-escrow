@@ -36,7 +36,10 @@ public partial class BitLockerService
             Log.Debug("Getting BitLocker volume info for {Drive}", drive);
             
             // Use PowerShell to get BitLocker info (more reliable than parsing manage-bde)
+            // $WarningPreference and $ProgressPreference suppress non-JSON output
             var script = $@"
+                $WarningPreference = 'SilentlyContinue'
+                $ProgressPreference = 'SilentlyContinue'
                 $vol = Get-BitLockerVolume -MountPoint '{drive}' -ErrorAction Stop
                 $protectors = $vol.KeyProtector | Where-Object {{ $_.KeyProtectorType -eq 'RecoveryPassword' }}
                 [PSCustomObject]@{{
@@ -48,7 +51,7 @@ public partial class BitLockerService
                             RecoveryPassword = $_.RecoveryPassword
                         }}
                     }})
-                }} | ConvertTo-Json -Depth 3
+                }} | ConvertTo-Json -Depth 3 -Compress
             ";
 
             var (result, error) = await RunPowerShellAsync(script);
@@ -67,7 +70,9 @@ public partial class BitLockerService
                 return null;
             }
 
-            var json = System.Text.Json.JsonDocument.Parse(result);
+            // Extract JSON in case there's non-JSON text in output
+            var jsonText = ExtractJson(result) ?? result;
+            var json = System.Text.Json.JsonDocument.Parse(jsonText);
             var root = json.RootElement;
             
             var volume = new BitLockerVolume
@@ -111,14 +116,17 @@ public partial class BitLockerService
         {
             Log.Information("Creating new recovery password protector on {Drive}", drive);
 
+            // $WarningPreference and $ProgressPreference suppress non-JSON output
             var script = $@"
+                $WarningPreference = 'SilentlyContinue'
+                $ProgressPreference = 'SilentlyContinue'
                 Add-BitLockerKeyProtector -MountPoint '{drive}' -RecoveryPasswordProtector -ErrorAction Stop | Out-Null
                 $vol = Get-BitLockerVolume -MountPoint '{drive}' -ErrorAction Stop
                 $newest = $vol.KeyProtector | Where-Object {{ $_.KeyProtectorType -eq 'RecoveryPassword' }} | Select-Object -Last 1
                 [PSCustomObject]@{{
                     Id = $newest.KeyProtectorId
                     RecoveryPassword = $newest.RecoveryPassword
-                }} | ConvertTo-Json
+                }} | ConvertTo-Json -Compress
             ";
 
             var (result, error) = await RunPowerShellAsync(script);
@@ -137,7 +145,9 @@ public partial class BitLockerService
                 return null;
             }
 
-            var json = System.Text.Json.JsonDocument.Parse(result);
+            // Extract JSON in case there's non-JSON text in output
+            var jsonText = ExtractJson(result) ?? result;
+            var json = System.Text.Json.JsonDocument.Parse(jsonText);
             var root = json.RootElement;
 
             var protector = new RecoveryProtector
@@ -165,7 +175,10 @@ public partial class BitLockerService
         {
             Log.Information("Removing protector {Id} from {Drive}", protectorId, drive);
 
+            // $WarningPreference and $ProgressPreference suppress non-JSON output
             var script = $@"
+                $WarningPreference = 'SilentlyContinue'
+                $ProgressPreference = 'SilentlyContinue'
                 Remove-BitLockerKeyProtector -MountPoint '{drive}' -KeyProtectorId '{protectorId}' -ErrorAction Stop
             ";
 
@@ -204,6 +217,30 @@ public partial class BitLockerService
         }
 
         return (output.Trim(), error.Trim());
+    }
+
+    /// <summary>
+    /// Extracts JSON from PowerShell output that may contain non-JSON text.
+    /// Looks for content starting with { or [ and ending with } or ].
+    /// </summary>
+    private static string? ExtractJson(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        // Try to find JSON object or array in the output
+        var startIndex = output.IndexOfAny(['{', '[']);
+        if (startIndex < 0)
+            return null;
+
+        var startChar = output[startIndex];
+        var endChar = startChar == '{' ? '}' : ']';
+        var lastEndIndex = output.LastIndexOf(endChar);
+        
+        if (lastEndIndex <= startIndex)
+            return null;
+
+        return output[startIndex..(lastEndIndex + 1)];
     }
 }
 
