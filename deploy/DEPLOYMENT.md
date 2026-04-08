@@ -26,19 +26,19 @@ Test on a BitLocker-enabled device:
 
 ```powershell
 # Test escrow
-crypt escrow --server https://crypt.ecuad.ca
+checkin escrow --server https://crypt.ecuad.ca
 
 # Test verification
-crypt verify --server https://crypt.ecuad.ca
+checkin verify --server https://crypt.ecuad.ca
 
 # Test rotation
-crypt rotate --server https://crypt.ecuad.ca
+checkin rotate --server https://crypt.ecuad.ca
 
 # View config
-crypt config show
+checkin config show
 
 # Register scheduled task
-crypt register-task --frequency daily
+checkin register-task --frequency daily
 ```
 
 ## Architecture Support
@@ -48,7 +48,7 @@ crypt register-task --frequency daily
 
 ## Configuration Options
 
-Set via config file (`C:\ProgramData\CryptEscrow\config.yaml`) or environment variables:
+Set via config file (`C:\ProgramData\ManagedEncryption\config.yaml`) or environment variables:
 
 - `CRYPT_ESCROW_SERVER_URL`: Crypt server URL
 - `CRYPT_KEY_ESCROW_INTERVAL`: Hours between rotations (default: 24)
@@ -58,7 +58,7 @@ Set via config file (`C:\ProgramData\CryptEscrow\config.yaml`) or environment va
 
 ## Monitoring
 
-Logs are written to: `C:\ProgramData\CryptEscrow\logs\crypt.log`
+Logs are written to: `C:\ProgramData\CryptEscrow\Logs\CryptEscrow_YYYYMMDD.log`
 
 Check scheduled task: `Get-ScheduledTask -TaskName "Crypt BitLocker Key Rotation"`
 
@@ -82,7 +82,7 @@ Test-NetConnection crypt.ecuad.ca -Port 443
 
 # Run with verbose logging
 $env:CRYPT_LOG_LEVEL = 'Debug'
-crypt escrow --server https://crypt.ecuad.ca
+checkin escrow --server https://crypt.ecuad.ca
 ```
 
 ## Deployment Timeline
