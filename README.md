@@ -250,6 +250,11 @@ Enterprise policies can be deployed via Intune CSP/OMA-URI to these registry loc
 | `ValidateKey` | String/DWORD | Validate key locally before escrow |
 | `SkipUsers` | String | Comma-separated list of users to skip |
 | `PostRunCommand` | String | Command to run after errors |
+| `ApiKey` | String | API key for server authentication |
+| `ApiKeyHeader` | String | Custom API key header name (default: X-API-Key) |
+| `UseMtls` | String/DWORD | Enable mutual TLS authentication (true/1 or false/0) |
+| `CertificateSubject` | String | Client certificate subject name for mTLS |
+| `CertificateThumbprint` | String | Client certificate thumbprint for mTLS |
 
 **Intune Custom OMA-URI Example:**
 - OMA-URI: `./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/ServerUrl`
