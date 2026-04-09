@@ -199,6 +199,8 @@ logging:
 | `CRYPT_USE_MTLS` | Enable mutual TLS authentication (true/false) |
 | `CRYPT_CERT_SUBJECT` | Client certificate subject name for mTLS |
 | `CRYPT_CERT_THUMBPRINT` | Client certificate thumbprint for mTLS |
+| `CRYPT_CLIENT_CERT_PATH` | Client .pem in Windows filesystem |
+| `CRYPT_CLIENT_KEY_PATH` | Client .key in Windows filesystem |
 
 ### Authentication
 
