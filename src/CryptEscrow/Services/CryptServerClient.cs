@@ -34,6 +34,25 @@ public class CryptServerClient : IDisposable
             handler.ServerCertificateCustomValidationCallback = (_, _, _, _) => true;
             Log.Warning("TLS certificate validation disabled");
         }
+        // Load from PEM/Key files if provided
+        if (!string.IsNullOrEmpty(authConfig?.ClientCertPath) && !string.IsNullOrEmpty(authConfig?.ClientKeyPath))
+        {
+            try
+            {
+                var cert = X509Certificate2.CreateFromPemFile(authConfig.ClientCertPath, authConfig.ClientKeyPath);
+                
+                // On Windows, the certificate must be exported and re-imported to 
+                // be associated with the ephemeral key correctly for HttpClient
+                var ephemeralCert = new X509Certificate2(cert.Export(X509ContentType.Pfx));
+                
+                handler.ClientCertificates.Add(ephemeralCert);
+                Log.Information("mTLS enabled using PEM files: {CertPath}", authConfig.ClientCertPath);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to load client certificate from PEM files");
+            }
+        }
 
         // Configure mTLS if enabled
         if (authConfig?.UseMtls == true)
