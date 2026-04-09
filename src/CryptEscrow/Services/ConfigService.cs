@@ -360,7 +360,9 @@ public class ConfigService
             CertificateSubject = GetCertificateSubject(),
             CertificateThumbprint = GetCertificateThumbprint(),
             CertificateStoreLocation = config?.Server?.Auth?.CertificateStoreLocation ?? "LocalMachine",
-            CertificateStoreName = config?.Server?.Auth?.CertificateStoreName ?? "My"
+            CertificateStoreName = config?.Server?.Auth?.CertificateStoreName ?? "My",
+            ClientCertPath = Environment.GetEnvironmentVariable("CRYPT_CLIENT_CERT_PATH") ?? config?.Server?.Auth?.ClientCertPath,
+            ClientKeyPath = Environment.GetEnvironmentVariable("CRYPT_CLIENT_KEY_PATH") ?? config?.Server?.Auth?.ClientKeyPath
         };
     }
 
@@ -575,6 +577,10 @@ public class AuthConfig
     /// Default: My (Personal certificates).
     /// </summary>
     public string CertificateStoreName { get; set; } = "My";
+
+    // Client certs by path
+    public string? ClientCertPath { get; set; }
+    public string? ClientKeyPath { get; set; }
 }
 
 public class EscrowConfig
