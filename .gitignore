@@ -7,6 +7,10 @@ release/
 *.dll
 *.pdb
 
+# Test output
+TestResults/
+tests/**/TestResults/
+
 # IDE
 .vs/
 .vscode/
