@@ -12,6 +12,18 @@ permissions:
 
 env:
   DOTNET_VERSION: '10.0.x'
+  # Opt into Node.js 24 for JavaScript actions ahead of the June 2, 2026 forced
+  # migration. Removes the deprecation warnings from actions/checkout,
+  # setup-dotnet, upload-artifact, download-artifact, and action-gh-release.
+  #
+  # Escape hatch: between June 2, 2026 (when Node 24 becomes the default) and
+  # September 16, 2026 (when Node 20 is removed from the runner), setting
+  # ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true can force a fallback to
+  # Node 20 if a compatibility issue surfaces. After September 16, 2026 the
+  # fallback is no longer possible — the Node 20 runtime is gone.
+  #
+  # This flag becomes redundant on June 2, 2026 and should be removed then.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   build:
