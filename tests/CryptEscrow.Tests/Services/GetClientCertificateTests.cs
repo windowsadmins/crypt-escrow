@@ -149,4 +149,53 @@ public class GetClientCertificateTests
 
         cert.Should().BeNull();
     }
+
+    [Fact]
+    public void CertStoreWinsOverPfxWhenBothConfigured()
+    {
+        using var certs = new SelfSignedCertFactory();
+        var (pfxPath, pfxThumbprint) = certs.WritePfx(password: null);
+
+        using var storeCert = new TransientStoreCert();
+
+        // Sanity: the two certs are distinct, otherwise the assertion below
+        // wouldn't actually prove anything.
+        storeCert.Thumbprint.Should().NotBe(pfxThumbprint);
+
+        var cfg = new AuthConfig
+        {
+            CertificateStoreLocation = "CurrentUser",
+            CertificateStoreName = "My",
+            CertificateThumbprint = storeCert.Thumbprint,
+            PfxPath = pfxPath,
+        };
+
+        using var result = CryptServerClient.GetClientCertificate(cfg);
+
+        result.Should().NotBeNull();
+        result!.Thumbprint.Should().Be(storeCert.Thumbprint,
+            "Cert Store is the most secure strategy and must win when both it and PFX are configured");
+    }
+
+    [Fact]
+    public void FallsThroughToPfxWhenCertStoreThumbprintNotFound()
+    {
+        using var certs = new SelfSignedCertFactory();
+        var (pfxPath, pfxThumbprint) = certs.WritePfx(password: null);
+
+        var cfg = new AuthConfig
+        {
+            CertificateStoreLocation = "CurrentUser",
+            CertificateStoreName = "My",
+            // Valid-looking thumbprint that doesn't exist in the store
+            CertificateThumbprint = "0000000000000000000000000000000000000000",
+            PfxPath = pfxPath,
+        };
+
+        using var result = CryptServerClient.GetClientCertificate(cfg);
+
+        result.Should().NotBeNull();
+        result!.Thumbprint.Should().Be(pfxThumbprint,
+            "a missing store thumbprint should fall through to the PFX strategy");
+    }
 }

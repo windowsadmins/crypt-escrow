@@ -6,11 +6,25 @@ using Xunit;
 namespace CryptEscrow.Tests.Services;
 
 /// <summary>
+/// Opt-out of xUnit's default cross-class parallelism for any tests that
+/// mutate process-wide state (environment variables, ConfigService static
+/// overrides). All test classes that depend on <see cref="EnvironmentSnapshot"/>,
+/// <see cref="TempRegistryKey"/>, or <see cref="TempConfigFile"/> should join
+/// this collection.
+/// </summary>
+[CollectionDefinition(GlobalStateCollection.Name, DisableParallelization = true)]
+public sealed class GlobalStateCollection
+{
+    public const string Name = "GlobalState";
+}
+
+/// <summary>
 /// Covers the env-var > registry > YAML > default priority chain for every
 /// GetX() helper on <see cref="ConfigService"/>, plus GetAuthConfig composition.
 /// Tests never touch the real ProgramData config path or HKLM registry; see
 /// <see cref="TempConfigFile"/> and <see cref="TempRegistryKey"/>.
 /// </summary>
+[Collection(GlobalStateCollection.Name)]
 public class ConfigServiceTests
 {
     // -------------------------- GetApiKey --------------------------
