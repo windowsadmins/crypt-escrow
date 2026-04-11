@@ -10,16 +10,35 @@ namespace CryptEscrow.Services;
 /// </summary>
 public class ConfigService
 {
-    private static readonly string ConfigDir = Path.Combine(
+    private static readonly string DefaultConfigDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "ManagedEncryption");
-    
-    private static readonly string ConfigPath = Path.Combine(ConfigDir, "config.yaml");
-    private static readonly string MarkerPath = Path.Combine(ConfigDir, "escrow.marker");
+
+    private static readonly string DefaultConfigPath = Path.Combine(DefaultConfigDir, "config.yaml");
+    private static readonly string DefaultMarkerPath = Path.Combine(DefaultConfigDir, "escrow.marker");
+
+    // Test seam: when non-null, overrides the config file path (and derives the marker
+    // path alongside it). Never set in production code.
+    internal static string? ConfigPathOverride { get; set; }
+
+    private static string ConfigDir => ConfigPathOverride is { Length: > 0 }
+        ? Path.GetDirectoryName(ConfigPathOverride)!
+        : DefaultConfigDir;
+
+    private static string ConfigPath => ConfigPathOverride ?? DefaultConfigPath;
+
+    private static string MarkerPath => ConfigPathOverride is { Length: > 0 }
+        ? Path.Combine(Path.GetDirectoryName(ConfigPathOverride)!, "escrow.marker")
+        : DefaultMarkerPath;
 
     // CSP/OMA-URI registry paths for enterprise policy
     private const string RegistryBasePath = @"SOFTWARE\Policies\Crypt\ManagedEncryption";
     private const string RegistryBasePathMdm = @"SOFTWARE\Microsoft\PolicyManager\current\device\Crypt~Policy~ManagedEncryption";
+
+    // Test seam: when non-null, registry reads go through this function instead of
+    // the HKLM paths above. Lets tests isolate under HKCU without admin. Production
+    // code leaves this null.
+    internal static Func<string, string?>? RegistryReaderOverride { get; set; }
 
     private static readonly IDeserializer YamlDeserializer = new DeserializerBuilder()
         .WithNamingConvention(UnderscoredNamingConvention.Instance)
@@ -34,8 +53,12 @@ public class ConfigService
     /// Reads a string value from the enterprise policy registry (CSP/OMA-URI).
     /// Checks both standard Policies path and MDM PolicyManager path.
     /// </summary>
-    private static string? GetRegistryValue(string valueName)
+    internal static string? GetRegistryValue(string valueName)
     {
+        // Test seam — tests redirect to an HKCU subkey so they can run without admin.
+        if (RegistryReaderOverride is { } reader)
+            return reader(valueName);
+
         try
         {
             // Try standard Group Policy path first

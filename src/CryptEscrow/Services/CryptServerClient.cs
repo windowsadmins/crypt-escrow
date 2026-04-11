@@ -68,11 +68,37 @@ public class CryptServerClient : IDisposable
     }
 
     /// <summary>
+    /// Test-only constructor that injects a pre-built <see cref="HttpMessageHandler"/>
+    /// (typically a mock). Bypasses the TLS / mTLS setup so tests can exercise HTTP
+    /// behavior in isolation without spinning up a real TLS stack.
+    /// </summary>
+    internal CryptServerClient(string serverUrl, HttpMessageHandler handler, AuthConfig? authConfig = null)
+    {
+        _serverUrl = serverUrl.TrimEnd('/');
+        _authConfig = authConfig;
+        _clientCert = null;
+
+        _httpClient = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(30)
+        };
+
+        _httpClient.DefaultRequestHeaders.Accept.Add(
+            new MediaTypeWithQualityHeaderValue("application/json"));
+
+        if (!string.IsNullOrWhiteSpace(authConfig?.ApiKey))
+        {
+            var headerName = authConfig.ApiKeyHeader ?? "X-API-Key";
+            _httpClient.DefaultRequestHeaders.Add(headerName, authConfig.ApiKey);
+        }
+    }
+
+    /// <summary>
     /// Resolves a client certificate for mTLS, trying strategies in priority order
     /// (most secure first): PFX+Credential Manager, then PEM+key files, then Windows
     /// Certificate Store by thumbprint, then Certificate Store by subject name.
     /// </summary>
-    private static X509Certificate2? GetClientCertificate(AuthConfig authConfig)
+    internal static X509Certificate2? GetClientCertificate(AuthConfig authConfig)
     {
         // Strategy 1: PFX file with passphrase from Windows Credential Manager.
         // Preferred file-based option — key material is encrypted at rest and the
