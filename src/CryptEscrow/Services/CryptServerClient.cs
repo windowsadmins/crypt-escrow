@@ -68,13 +68,50 @@ public class CryptServerClient : IDisposable
     }
 
     /// <summary>
-    /// Resolves a client certificate for mTLS, trying strategies in priority order
-    /// (most secure first): PFX+Credential Manager, then PEM+key files, then Windows
-    /// Certificate Store by thumbprint, then Certificate Store by subject name.
+    /// Test-only constructor that injects a pre-built <see cref="HttpMessageHandler"/>
+    /// (typically a mock). Bypasses the TLS / mTLS setup so tests can exercise HTTP
+    /// behavior in isolation without spinning up a real TLS stack.
     /// </summary>
-    private static X509Certificate2? GetClientCertificate(AuthConfig authConfig)
+    internal CryptServerClient(string serverUrl, HttpMessageHandler handler, AuthConfig? authConfig = null)
     {
-        // Strategy 1: PFX file with passphrase from Windows Credential Manager.
+        _serverUrl = serverUrl.TrimEnd('/');
+        _authConfig = authConfig;
+        _clientCert = null;
+
+        _httpClient = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(30)
+        };
+
+        _httpClient.DefaultRequestHeaders.Accept.Add(
+            new MediaTypeWithQualityHeaderValue("application/json"));
+
+        if (!string.IsNullOrWhiteSpace(authConfig?.ApiKey))
+        {
+            var headerName = authConfig.ApiKeyHeader ?? "X-API-Key";
+            _httpClient.DefaultRequestHeaders.Add(headerName, authConfig.ApiKey);
+        }
+    }
+
+    /// <summary>
+    /// Resolves a client certificate for mTLS, trying strategies in priority order
+    /// (most secure first): Windows Certificate Store (by thumbprint or subject),
+    /// then PFX file with passphrase from Credential Manager, then PEM + key files.
+    /// The Cert Store is tried first because its private key is DPAPI-protected and
+    /// can be marked non-exportable; file-based strategies are a fallback for
+    /// environments where importing into the store isn't feasible.
+    /// </summary>
+    internal static X509Certificate2? GetClientCertificate(AuthConfig authConfig)
+    {
+        // Strategy 1: Windows Certificate Store (by thumbprint, then subject).
+        // Most secure — private key is DPAPI-protected. Silently returns null when
+        // neither CertificateThumbprint nor CertificateSubject is configured, so the
+        // caller falls through to the file-based strategies below.
+        var storeCert = LoadFromCertStore(authConfig);
+        if (storeCert != null)
+            return storeCert;
+
+        // Strategy 2: PFX file with passphrase from Windows Credential Manager.
         // Preferred file-based option — key material is encrypted at rest and the
         // passphrase never touches YAML, environment variables, or the registry.
         if (!string.IsNullOrWhiteSpace(authConfig.PfxPath))
@@ -84,8 +121,9 @@ public class CryptServerClient : IDisposable
                 return cert;
         }
 
-        // Strategy 2: PEM certificate + unencrypted private key file.
-        // Least preferred file-based option — private key is plaintext on disk.
+        // Strategy 3: PEM certificate + unencrypted private key file.
+        // Least preferred — the private key sits in plaintext on disk protected
+        // only by filesystem ACLs.
         if (!string.IsNullOrWhiteSpace(authConfig.ClientCertPath) &&
             !string.IsNullOrWhiteSpace(authConfig.ClientKeyPath))
         {
@@ -94,9 +132,7 @@ public class CryptServerClient : IDisposable
                 return cert;
         }
 
-        // Strategies 3 & 4: Windows Certificate Store, by thumbprint then subject.
-        // Most secure overall — private key DPAPI-protected and can be non-exportable.
-        return LoadFromCertStore(authConfig);
+        return null;
     }
 
     /// <summary>
@@ -186,10 +222,20 @@ public class CryptServerClient : IDisposable
 
     /// <summary>
     /// Loads a client certificate from the Windows Certificate Store by thumbprint
-    /// (most specific) or subject name.
+    /// (most specific) or subject name. Returns null silently when neither
+    /// identifier is configured so the caller can fall through to file-based
+    /// strategies without generating misleading error logs.
     /// </summary>
     private static X509Certificate2? LoadFromCertStore(AuthConfig authConfig)
     {
+        // Early-out: no Cert Store config means the caller wants a file-based
+        // strategy — skip opening the store entirely.
+        if (string.IsNullOrWhiteSpace(authConfig.CertificateThumbprint) &&
+            string.IsNullOrWhiteSpace(authConfig.CertificateSubject))
+        {
+            return null;
+        }
+
         try
         {
             var storeLocation = authConfig.CertificateStoreLocation?.ToLower() switch
