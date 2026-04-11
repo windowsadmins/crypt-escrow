@@ -197,8 +197,12 @@ logging:
 | `CRYPT_API_KEY` | API key for server authentication |
 | `CRYPT_API_KEY_HEADER` | Custom API key header name (default: X-API-Key) |
 | `CRYPT_USE_MTLS` | Enable mutual TLS authentication (true/false) |
-| `CRYPT_CERT_SUBJECT` | Client certificate subject name for mTLS |
-| `CRYPT_CERT_THUMBPRINT` | Client certificate thumbprint for mTLS |
+| `CRYPT_CERT_SUBJECT` | Client certificate subject name for mTLS (Cert Store) |
+| `CRYPT_CERT_THUMBPRINT` | Client certificate thumbprint for mTLS (Cert Store) |
+| `CRYPT_PFX_PATH` | Path to client certificate PFX file for mTLS (preferred file-based option) |
+| `CRYPT_PFX_PASSWORD_CRED` | Name of Windows Credential Manager entry holding the PFX passphrase |
+| `CRYPT_CLIENT_CERT_PATH` | Path to client certificate PEM file for mTLS (least preferred file-based option) |
+| `CRYPT_CLIENT_KEY_PATH` | Path to client private key PEM file (paired with above) |
 
 ### Authentication
 
@@ -217,7 +221,11 @@ Or via environment variables: `CRYPT_API_KEY` and `CRYPT_API_KEY_HEADER`.
 
 **Mutual TLS (mTLS):**
 
-Similar to Mac Crypt's `CommonNameForEscrow` feature. Uses a client certificate from the Windows Certificate Store.
+Set `use_mtls: true` (or `CRYPT_USE_MTLS=true`) and pick one of the three strategies below. They are tried in the order listed — most secure first — and the first one that succeeds wins. If you configure multiple, the higher-ranked strategy is used.
+
+#### 1. Windows Certificate Store (preferred)
+
+Similar to Mac Crypt's `CommonNameForEscrow` feature. The private key is protected by DPAPI, can be marked non-exportable at import time, and integrates with the Windows PKI lifecycle. Deployable via Intune / Group Policy.
 
 ```yaml
 server:
@@ -228,7 +236,47 @@ server:
     certificate_store_name: My
 ```
 
-Or via environment variables: `CRYPT_USE_MTLS`, `CRYPT_CERT_SUBJECT`, `CRYPT_CERT_THUMBPRINT`.
+Environment variables: `CRYPT_CERT_SUBJECT`, `CRYPT_CERT_THUMBPRINT`.
+
+#### 2. PFX file + Credential Manager passphrase
+
+Use when importing into the Cert Store isn't feasible but you still want encrypted-at-rest key material. The passphrase lives in Windows Credential Manager (DPAPI-protected) and is **never** stored in YAML, environment variables, or the registry.
+
+Provision the passphrase once with `cmdkey`:
+
+```cmd
+cmdkey /generic:CryptPfxPassword /user:cryptescrow /pass:<pfx-passphrase>
+```
+
+Then configure:
+
+```yaml
+server:
+  auth:
+    use_mtls: true
+    pfx_path: C:\ProgramData\ManagedEncryption\client.pfx
+    pfx_password_credential: CryptPfxPassword  # matches the /generic: value above
+```
+
+Environment variables: `CRYPT_PFX_PATH`, `CRYPT_PFX_PASSWORD_CRED`. If the PFX has no passphrase, omit `pfx_password_credential`.
+
+#### 3. PEM + .key file (least preferred)
+
+The private key sits in plaintext on disk, protected only by filesystem ACLs. Only use this when the other two options aren't available, and lock the key file down so only `SYSTEM` (or the service account) can read it:
+
+```cmd
+icacls C:\ProgramData\ManagedEncryption\client.key /inheritance:r /grant:r SYSTEM:R
+```
+
+```yaml
+server:
+  auth:
+    use_mtls: true
+    client_cert_path: C:\ProgramData\ManagedEncryption\client.pem
+    client_key_path:  C:\ProgramData\ManagedEncryption\client.key
+```
+
+Environment variables: `CRYPT_CLIENT_CERT_PATH`, `CRYPT_CLIENT_KEY_PATH`.
 
 ### Registry Configuration (CSP/OMA-URI)
 
@@ -255,6 +303,10 @@ Enterprise policies can be deployed via Intune CSP/OMA-URI to these registry loc
 | `UseMtls` | String/DWORD | Enable mutual TLS authentication (true/1 or false/0) |
 | `CertificateSubject` | String | Client certificate subject name for mTLS |
 | `CertificateThumbprint` | String | Client certificate thumbprint for mTLS |
+| `PfxPath` | String | Path to client PFX file (preferred file-based mTLS option) |
+| `PfxPasswordCredential` | String | Windows Credential Manager target name holding the PFX passphrase |
+| `ClientCertPath` | String | Path to client certificate PEM file (least preferred file-based mTLS option) |
+| `ClientKeyPath` | String | Path to client private key PEM file (paired with `ClientCertPath`) |
 
 **Intune Custom OMA-URI Example:**
 - OMA-URI: `./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/ServerUrl`
