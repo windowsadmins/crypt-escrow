@@ -56,10 +56,12 @@ public class ConfigService
         .Build();
 
     /// <summary>
-    /// Reads a string value from the enterprise policy registry (CSP/OMA-URI).
-    /// Checks both standard Policies path and MDM PolicyManager path. Handles
-    /// REG_SZ, REG_DWORD, and REG_QWORD; other types (REG_BINARY, REG_MULTI_SZ)
-    /// are ignored.
+    /// Reads an enterprise policy value from the registry (CSP/OMA-URI) and
+    /// returns its string representation. Checks both the standard Group
+    /// Policy path and the MDM PolicyManager path. Supports <c>REG_SZ</c>,
+    /// <c>REG_DWORD</c>, and <c>REG_QWORD</c>; other types (<c>REG_BINARY</c>,
+    /// <c>REG_MULTI_SZ</c>) are ignored. Returns <c>null</c> when the value
+    /// is absent or the type is unsupported.
     /// </summary>
     internal static string? GetRegistryValue(string valueName)
     {
@@ -71,7 +73,7 @@ public class ConfigService
             ?? ReadValueFromPath(RegistryBasePathMdm, valueName, "MDM");
     }
 
-    private static string? ReadValueFromPath(string path, string valueName, string pathLabel)
+    private static string? ReadValueFromPath(string path, string valueName, string policySource)
     {
         try
         {
@@ -80,13 +82,13 @@ public class ConfigService
             var stringValue = ConvertToConfigString(raw);
             if (stringValue != null)
             {
-                Log.Debug("Found registry value {ValueName} in {Path} path", valueName, pathLabel);
+                Log.Debug("Found registry value {ValueName} from {PolicySource}", valueName, policySource);
             }
             return stringValue;
         }
         catch (Exception ex)
         {
-            Log.Debug(ex, "Failed to read registry value {ValueName} from {Path} path", valueName, pathLabel);
+            Log.Debug(ex, "Failed to read registry value {ValueName} from {PolicySource}", valueName, policySource);
             return null;
         }
     }
