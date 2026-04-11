@@ -14,6 +14,7 @@ public class CryptServerClient : IDisposable
     private readonly HttpClient _httpClient;
     private readonly string _serverUrl;
     private readonly AuthConfig? _authConfig;
+    private readonly X509Certificate2? _clientCert;
 
     /// <summary>
     /// Creates a new CryptServerClient with optional authentication.
@@ -25,43 +26,23 @@ public class CryptServerClient : IDisposable
     {
         _serverUrl = serverUrl.TrimEnd('/');
         _authConfig = authConfig;
-        
+
         var handler = new HttpClientHandler();
-        
+
         // Configure TLS certificate validation
         if (skipCertificateCheck)
         {
             handler.ServerCertificateCustomValidationCallback = (_, _, _, _) => true;
             Log.Warning("TLS certificate validation disabled");
         }
-        // Load from PEM/Key files if provided
-        if (!string.IsNullOrEmpty(authConfig?.ClientCertPath) && !string.IsNullOrEmpty(authConfig?.ClientKeyPath))
-        {
-            try
-            {
-                var cert = X509Certificate2.CreateFromPemFile(authConfig.ClientCertPath, authConfig.ClientKeyPath);
-                
-                // On Windows, the certificate must be exported and re-imported to 
-                // be associated with the ephemeral key correctly for HttpClient
-                var ephemeralCert = new X509Certificate2(cert.Export(X509ContentType.Pfx));
-                
-                handler.ClientCertificates.Add(ephemeralCert);
-                Log.Information("mTLS enabled using PEM files: {CertPath}", authConfig.ClientCertPath);
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Failed to load client certificate from PEM files");
-            }
-        }
 
         // Configure mTLS if enabled
         if (authConfig?.UseMtls == true)
         {
-            var clientCert = GetClientCertificate(authConfig);
-            if (clientCert != null)
+            _clientCert = GetClientCertificate(authConfig);
+            if (_clientCert != null)
             {
-                handler.ClientCertificates.Add(clientCert);
-                Log.Information("mTLS enabled with certificate: {Subject}", clientCert.Subject);
+                handler.ClientCertificates.Add(_clientCert);
             }
             else
             {
@@ -73,10 +54,10 @@ public class CryptServerClient : IDisposable
         {
             Timeout = TimeSpan.FromSeconds(30)
         };
-        
+
         _httpClient.DefaultRequestHeaders.Accept.Add(
             new MediaTypeWithQualityHeaderValue("application/json"));
-        
+
         // Configure API key authentication
         if (!string.IsNullOrWhiteSpace(authConfig?.ApiKey))
         {
@@ -87,9 +68,127 @@ public class CryptServerClient : IDisposable
     }
 
     /// <summary>
-    /// Gets a client certificate from the Windows Certificate Store.
+    /// Resolves a client certificate for mTLS, trying strategies in priority order
+    /// (most secure first): PFX+Credential Manager, then PEM+key files, then Windows
+    /// Certificate Store by thumbprint, then Certificate Store by subject name.
     /// </summary>
     private static X509Certificate2? GetClientCertificate(AuthConfig authConfig)
+    {
+        // Strategy 1: PFX file with passphrase from Windows Credential Manager.
+        // Preferred file-based option — key material is encrypted at rest and the
+        // passphrase never touches YAML, environment variables, or the registry.
+        if (!string.IsNullOrWhiteSpace(authConfig.PfxPath))
+        {
+            var cert = LoadFromPfxFile(authConfig);
+            if (cert != null)
+                return cert;
+        }
+
+        // Strategy 2: PEM certificate + unencrypted private key file.
+        // Least preferred file-based option — private key is plaintext on disk.
+        if (!string.IsNullOrWhiteSpace(authConfig.ClientCertPath) &&
+            !string.IsNullOrWhiteSpace(authConfig.ClientKeyPath))
+        {
+            var cert = LoadFromPemFiles(authConfig);
+            if (cert != null)
+                return cert;
+        }
+
+        // Strategies 3 & 4: Windows Certificate Store, by thumbprint then subject.
+        // Most secure overall — private key DPAPI-protected and can be non-exportable.
+        return LoadFromCertStore(authConfig);
+    }
+
+    /// <summary>
+    /// Loads a PFX client certificate from disk using a passphrase retrieved from
+    /// Windows Credential Manager. Returns null on any failure so the caller can
+    /// fall through to the next strategy.
+    /// </summary>
+    private static X509Certificate2? LoadFromPfxFile(AuthConfig authConfig)
+    {
+        var pfxPath = authConfig.PfxPath!;
+        try
+        {
+            if (!File.Exists(pfxPath))
+            {
+                Log.Error("PFX file not found: {Path}", pfxPath);
+                return null;
+            }
+
+            string? password = null;
+            if (!string.IsNullOrWhiteSpace(authConfig.PfxPasswordCredential))
+            {
+                password = CredentialManager.ReadGenericPassword(authConfig.PfxPasswordCredential);
+                if (password == null)
+                {
+                    Log.Error(
+                        "PFX passphrase not found in Credential Manager (target: {Target}); cannot load {Path}",
+                        authConfig.PfxPasswordCredential, pfxPath);
+                    return null;
+                }
+            }
+
+            var cert = X509CertificateLoader.LoadPkcs12FromFile(pfxPath, password);
+            Log.Information("mTLS enabled via PFX file: {Path}", pfxPath);
+            return cert;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to load PFX file {Path}", pfxPath);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Loads a PEM certificate + private key from disk. Performs a PFX round-trip
+    /// so the resulting private key is associated with a key container that
+    /// HttpClient can use during the TLS handshake on Windows.
+    /// </summary>
+    private static X509Certificate2? LoadFromPemFiles(AuthConfig authConfig)
+    {
+        var certPath = authConfig.ClientCertPath!;
+        var keyPath = authConfig.ClientKeyPath!;
+        try
+        {
+            if (!File.Exists(certPath))
+            {
+                Log.Error("Client certificate PEM file not found: {Path}", certPath);
+                return null;
+            }
+            if (!File.Exists(keyPath))
+            {
+                Log.Error("Client private key file not found: {Path}", keyPath);
+                return null;
+            }
+
+            using var pemCert = X509Certificate2.CreateFromPemFile(certPath, keyPath);
+
+            // Windows: re-import via PFX round-trip so the private key is associated
+            // with a key container HttpClient can use during the TLS handshake.
+            var pfxBytes = pemCert.Export(X509ContentType.Pfx);
+            try
+            {
+                var cert = X509CertificateLoader.LoadPkcs12(pfxBytes, password: null);
+                Log.Information("mTLS enabled via PEM files: {Path}", certPath);
+                return cert;
+            }
+            finally
+            {
+                Array.Clear(pfxBytes);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to load client certificate from PEM files: {Path}", certPath);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Loads a client certificate from the Windows Certificate Store by thumbprint
+    /// (most specific) or subject name.
+    /// </summary>
+    private static X509Certificate2? LoadFromCertStore(AuthConfig authConfig)
     {
         try
         {
@@ -110,23 +209,23 @@ public class CryptServerClient : IDisposable
             using var store = new X509Store(storeName, storeLocation);
             store.Open(OpenFlags.ReadOnly);
 
-            X509Certificate2Collection? certs = null;
+            X509Certificate2Collection? certs;
 
             // Try to find by thumbprint first (most specific)
             if (!string.IsNullOrWhiteSpace(authConfig.CertificateThumbprint))
             {
                 var thumbprint = authConfig.CertificateThumbprint.Replace(" ", "").ToUpperInvariant();
                 certs = store.Certificates.Find(
-                    X509FindType.FindByThumbprint, 
-                    thumbprint, 
+                    X509FindType.FindByThumbprint,
+                    thumbprint,
                     validOnly: false);
-                
+
                 if (certs.Count > 0)
                 {
-                    Log.Debug("Found certificate by thumbprint: {Thumbprint}", thumbprint);
+                    Log.Information("mTLS enabled via Cert Store (thumbprint {Thumbprint})", thumbprint);
                     return certs[0];
                 }
-                
+
                 Log.Warning("No certificate found with thumbprint: {Thumbprint}", thumbprint);
             }
 
@@ -134,10 +233,10 @@ public class CryptServerClient : IDisposable
             if (!string.IsNullOrWhiteSpace(authConfig.CertificateSubject))
             {
                 certs = store.Certificates.Find(
-                    X509FindType.FindBySubjectName, 
-                    authConfig.CertificateSubject, 
+                    X509FindType.FindBySubjectName,
+                    authConfig.CertificateSubject,
                     validOnly: true);
-                
+
                 if (certs.Count > 0)
                 {
                     // Return the certificate with the latest expiration date
@@ -146,16 +245,17 @@ public class CryptServerClient : IDisposable
                         .Where(c => c.HasPrivateKey)
                         .OrderByDescending(c => c.NotAfter)
                         .FirstOrDefault();
-                    
+
                     if (cert != null)
                     {
-                        Log.Debug("Found certificate by subject: {Subject}, Expires: {Expiry}", 
+                        Log.Information(
+                            "mTLS enabled via Cert Store (subject {Subject}, expires {Expiry})",
                             cert.Subject, cert.NotAfter);
                         return cert;
                     }
                 }
-                
-                Log.Warning("No valid certificate found with subject: {Subject}", 
+
+                Log.Warning("No valid certificate found with subject: {Subject}",
                     authConfig.CertificateSubject);
             }
 
@@ -292,6 +392,7 @@ public class CryptServerClient : IDisposable
     public void Dispose()
     {
         _httpClient.Dispose();
+        _clientCert?.Dispose();
         GC.SuppressFinalize(this);
     }
 }

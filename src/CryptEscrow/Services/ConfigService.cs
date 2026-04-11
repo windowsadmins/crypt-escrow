@@ -347,6 +347,79 @@ public class ConfigService
     }
 
     /// <summary>
+    /// Gets the path to a client certificate PEM file for mTLS.
+    /// Priority: Environment variable > Registry > YAML config
+    /// </summary>
+    public static string? GetClientCertPath()
+    {
+        var envValue = Environment.GetEnvironmentVariable("CRYPT_CLIENT_CERT_PATH");
+        if (!string.IsNullOrWhiteSpace(envValue))
+            return envValue;
+
+        var regValue = GetRegistryValue("ClientCertPath");
+        if (!string.IsNullOrWhiteSpace(regValue))
+            return regValue;
+
+        var config = LoadConfig();
+        return config?.Server?.Auth?.ClientCertPath;
+    }
+
+    /// <summary>
+    /// Gets the path to the client private key PEM file for mTLS (paired with ClientCertPath).
+    /// Priority: Environment variable > Registry > YAML config
+    /// </summary>
+    public static string? GetClientKeyPath()
+    {
+        var envValue = Environment.GetEnvironmentVariable("CRYPT_CLIENT_KEY_PATH");
+        if (!string.IsNullOrWhiteSpace(envValue))
+            return envValue;
+
+        var regValue = GetRegistryValue("ClientKeyPath");
+        if (!string.IsNullOrWhiteSpace(regValue))
+            return regValue;
+
+        var config = LoadConfig();
+        return config?.Server?.Auth?.ClientKeyPath;
+    }
+
+    /// <summary>
+    /// Gets the path to a client certificate PFX file for mTLS. Preferred over PEM because
+    /// the private key is encrypted at rest and the passphrase is pulled from Credential Manager.
+    /// Priority: Environment variable > Registry > YAML config
+    /// </summary>
+    public static string? GetPfxPath()
+    {
+        var envValue = Environment.GetEnvironmentVariable("CRYPT_PFX_PATH");
+        if (!string.IsNullOrWhiteSpace(envValue))
+            return envValue;
+
+        var regValue = GetRegistryValue("PfxPath");
+        if (!string.IsNullOrWhiteSpace(regValue))
+            return regValue;
+
+        var config = LoadConfig();
+        return config?.Server?.Auth?.PfxPath;
+    }
+
+    /// <summary>
+    /// Gets the name of the Windows Credential Manager entry holding the PFX passphrase.
+    /// Priority: Environment variable > Registry > YAML config
+    /// </summary>
+    public static string? GetPfxPasswordCredential()
+    {
+        var envValue = Environment.GetEnvironmentVariable("CRYPT_PFX_PASSWORD_CRED");
+        if (!string.IsNullOrWhiteSpace(envValue))
+            return envValue;
+
+        var regValue = GetRegistryValue("PfxPasswordCredential");
+        if (!string.IsNullOrWhiteSpace(regValue))
+            return regValue;
+
+        var config = LoadConfig();
+        return config?.Server?.Auth?.PfxPasswordCredential;
+    }
+
+    /// <summary>
     /// Gets the full authentication configuration.
     /// </summary>
     public static AuthConfig GetAuthConfig()
@@ -361,8 +434,10 @@ public class ConfigService
             CertificateThumbprint = GetCertificateThumbprint(),
             CertificateStoreLocation = config?.Server?.Auth?.CertificateStoreLocation ?? "LocalMachine",
             CertificateStoreName = config?.Server?.Auth?.CertificateStoreName ?? "My",
-            ClientCertPath = Environment.GetEnvironmentVariable("CRYPT_CLIENT_CERT_PATH") ?? config?.Server?.Auth?.ClientCertPath,
-            ClientKeyPath = Environment.GetEnvironmentVariable("CRYPT_CLIENT_KEY_PATH") ?? config?.Server?.Auth?.ClientKeyPath
+            ClientCertPath = GetClientCertPath(),
+            ClientKeyPath = GetClientKeyPath(),
+            PfxPath = GetPfxPath(),
+            PfxPasswordCredential = GetPfxPasswordCredential()
         };
     }
 
@@ -578,9 +653,32 @@ public class AuthConfig
     /// </summary>
     public string CertificateStoreName { get; set; } = "My";
 
-    // Client certs by path
+    /// <summary>
+    /// Path to a client certificate PEM file for mTLS. Least preferred file-based option
+    /// because the paired private key sits in plaintext on disk. Must be used together
+    /// with <see cref="ClientKeyPath"/>.
+    /// </summary>
     public string? ClientCertPath { get; set; }
+
+    /// <summary>
+    /// Path to the client private key PEM file for mTLS. Paired with <see cref="ClientCertPath"/>.
+    /// Lock this file down with a restrictive ACL — the key is unencrypted at rest.
+    /// </summary>
     public string? ClientKeyPath { get; set; }
+
+    /// <summary>
+    /// Path to a client certificate PFX (PKCS#12) file for mTLS. Preferred file-based option
+    /// because the private key is encrypted at rest. The decryption passphrase is read from
+    /// Windows Credential Manager via <see cref="PfxPasswordCredential"/>.
+    /// </summary>
+    public string? PfxPath { get; set; }
+
+    /// <summary>
+    /// Name of a generic Windows Credential Manager entry whose password blob holds the PFX
+    /// passphrase. The password is never stored in YAML, environment variables, or the registry.
+    /// Provision with <c>cmdkey /generic:&lt;name&gt; /user:&lt;anything&gt; /pass:&lt;secret&gt;</c>.
+    /// </summary>
+    public string? PfxPasswordCredential { get; set; }
 }
 
 public class EscrowConfig
