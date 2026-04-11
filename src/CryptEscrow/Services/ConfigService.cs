@@ -57,7 +57,9 @@ public class ConfigService
 
     /// <summary>
     /// Reads a string value from the enterprise policy registry (CSP/OMA-URI).
-    /// Checks both standard Policies path and MDM PolicyManager path.
+    /// Checks both standard Policies path and MDM PolicyManager path. Handles
+    /// REG_SZ, REG_DWORD, and REG_QWORD; other types (REG_BINARY, REG_MULTI_SZ)
+    /// are ignored.
     /// </summary>
     internal static string? GetRegistryValue(string valueName)
     {
@@ -65,40 +67,55 @@ public class ConfigService
         if (RegistryReaderOverride is { } reader)
             return reader(valueName);
 
-        try
-        {
-            // Try standard Group Policy path first
-            using var key = Registry.LocalMachine.OpenSubKey(RegistryBasePath);
-            var value = key?.GetValue(valueName) as string;
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                Log.Debug("Found registry value {ValueName} in GP path", valueName);
-                return value;
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Debug(ex, "Failed to read registry value {ValueName} from GP path", valueName);
-        }
-
-        try
-        {
-            // Try MDM (Intune) PolicyManager path
-            using var key = Registry.LocalMachine.OpenSubKey(RegistryBasePathMdm);
-            var value = key?.GetValue(valueName) as string;
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                Log.Debug("Found registry value {ValueName} in MDM path", valueName);
-                return value;
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Debug(ex, "Failed to read registry value {ValueName} from MDM path", valueName);
-        }
-
-        return null;
+        return ReadValueFromPath(RegistryBasePath, valueName, "GP")
+            ?? ReadValueFromPath(RegistryBasePathMdm, valueName, "MDM");
     }
+
+    private static string? ReadValueFromPath(string path, string valueName, string pathLabel)
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(path);
+            var raw = key?.GetValue(valueName);
+            var stringValue = ConvertToConfigString(raw);
+            if (stringValue != null)
+            {
+                Log.Debug("Found registry value {ValueName} in {Path} path", valueName, pathLabel);
+            }
+            return stringValue;
+        }
+        catch (Exception ex)
+        {
+            Log.Debug(ex, "Failed to read registry value {ValueName} from {Path} path", valueName, pathLabel);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Converts a raw registry value to its string form suitable for parsing by
+    /// <see cref="GetRegistryBool"/> / <see cref="GetRegistryInt"/>.
+    /// <list type="bullet">
+    ///   <item><c>REG_SZ</c> / <c>REG_EXPAND_SZ</c> (<see cref="string"/>) — returned as-is, unless null/whitespace.</item>
+    ///   <item><c>REG_DWORD</c> (<see cref="int"/>) — formatted with invariant culture.</item>
+    ///   <item><c>REG_QWORD</c> (<see cref="long"/>) — formatted with invariant culture.</item>
+    ///   <item>Any other type (<c>REG_BINARY</c>, <c>REG_MULTI_SZ</c>, etc.) — returns null.</item>
+    /// </list>
+    /// </summary>
+    /// <remarks>
+    /// Exposed as <c>internal</c> for unit testing. The casting bug this replaced
+    /// silently dropped <c>REG_DWORD</c> values because <c>as string</c> returned
+    /// null for boxed <see cref="int"/>, breaking every CSP-deployed boolean and
+    /// integer policy that used the standard DWORD wire format.
+    /// </remarks>
+    internal static string? ConvertToConfigString(object? raw) => raw switch
+    {
+        null => null,
+        string s when !string.IsNullOrWhiteSpace(s) => s,
+        string => null, // empty or whitespace-only string treated as unset
+        int i => i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        long l => l.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        _ => null, // REG_BINARY, REG_MULTI_SZ, etc. — not supported as config values
+    };
 
     /// <summary>
     /// Reads a boolean value from the enterprise policy registry.

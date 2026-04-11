@@ -37,16 +37,29 @@ internal sealed class TempRegistryKey : IDisposable
         key.SetValue(name, value, RegistryValueKind.DWord);
     }
 
+    public void SetQword(string name, long value)
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(_path, writable: true)
+            ?? throw new InvalidOperationException($"Temp registry key disappeared: {_path}");
+        key.SetValue(name, value, RegistryValueKind.QWord);
+    }
+
+    /// <summary>
+    /// Opens the underlying temp subkey for direct <see cref="RegistryKey.GetValue(string)"/>
+    /// access. Caller must dispose. Used by tests that want to exercise the
+    /// production <see cref="ConfigService.ConvertToConfigString"/> path against
+    /// a real <see cref="RegistryKey"/> (without going through the reader seam).
+    /// </summary>
+    public RegistryKey OpenKey() =>
+        Registry.CurrentUser.OpenSubKey(_path)
+        ?? throw new InvalidOperationException($"Temp registry key disappeared: {_path}");
+
     private string? ReadValue(string name)
     {
+        // Delegate to the production helper so test behavior stays in sync with
+        // what GetRegistryValue would actually do against HKLM.
         using var key = Registry.CurrentUser.OpenSubKey(_path);
-        var raw = key?.GetValue(name);
-        return raw switch
-        {
-            string s when !string.IsNullOrWhiteSpace(s) => s,
-            int i => i.ToString(),
-            _ => null,
-        };
+        return ConfigService.ConvertToConfigString(key?.GetValue(name));
     }
 
     public void Dispose()
