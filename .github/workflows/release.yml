@@ -68,7 +68,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           New-Item -ItemType Directory -Path tools -Force | Out-Null
-          gh release download --repo windowsadmins/cimian-pkg --pattern "cimipkg.exe" --dir tools
+          $downloaded = $false
+          try {
+            gh release download --repo windowsadmins/cimian-pkg --pattern "cimipkg-win-x64.zip" --dir tools 2>$null
+            if (Test-Path tools/cimipkg-win-x64.zip) {
+              Expand-Archive -Path tools/cimipkg-win-x64.zip -DestinationPath tools -Force
+              if (Test-Path tools/cimipkg.exe) { $downloaded = $true }
+            }
+          } catch {}
+          if (-not $downloaded) {
+            gh release download --repo windowsadmins/cimian-pkg --pattern "cimipkg.exe" --dir tools
+          }
+          if (-not (Test-Path tools/cimipkg.exe)) { throw "cimipkg download failed" }
           Write-Host "Downloaded: $(Get-Item tools/cimipkg.exe | Select-Object -ExpandProperty Length) bytes"
 
       - name: Build MSI packages
