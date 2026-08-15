@@ -33,7 +33,7 @@ HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\Crypt~Policy~ManagedEncrypt
 
 | Value Name | Type | Description | Example |
 |------------|------|-------------|---------|
-| `ServerUrl` | REG_SZ | Crypt server URL | `https://crypt.example.com` |
+| `ServerUrl` | REG_SZ | Crypt server URL | `https://crypt.example.org` |
 | `SkipCertCheck` | REG_SZ or REG_DWORD | Skip SSL verification | `false` or `0` |
 | `AutoRotate` | REG_SZ or REG_DWORD | Auto-rotate on server request | `true` or `1` |
 | `CleanupOldProtectors` | REG_SZ or REG_DWORD | Remove old protectors after escrow | `true` or `1` |
@@ -58,7 +58,7 @@ Create a custom Device Configuration profile:
 - **Name**: Crypt Server URL
 - **OMA-URI**: `./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/ServerUrl`
 - **Data type**: String
-- **Value**: `https://crypt.example.com`
+- **Value**: `https://crypt.example.org`
 
 #### SkipCertCheck Configuration
 
@@ -116,7 +116,7 @@ if (-not (Test-Path $regPath)) {
 }
 
 # Set configuration values
-Set-ItemProperty -Path $regPath -Name 'ServerUrl' -Value 'https://crypt.example.com' -Type String
+Set-ItemProperty -Path $regPath -Name 'ServerUrl' -Value 'https://crypt.example.org' -Type String
 Set-ItemProperty -Path $regPath -Name 'SkipCertCheck' -Value 'false' -Type String
 Set-ItemProperty -Path $regPath -Name 'AutoRotate' -Value 'true' -Type String
 Set-ItemProperty -Path $regPath -Name 'CleanupOldProtectors' -Value 'true' -Type String
@@ -216,13 +216,13 @@ Create a JSON file for bulk import:
 ```json
 {
   "displayName": "CryptEscrow - BitLocker Key Escrow Configuration",
-  "description": "Enterprise configuration for CryptEscrow BitLocker key escrow to crypt.example.com",
+  "description": "Enterprise configuration for CryptEscrow BitLocker key escrow to crypt.example.org",
   "omaSettings": [
     {
       "@odata.type": "#microsoft.graph.omaSettingString",
       "displayName": "Crypt Server URL",
       "omaUri": "./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/ServerUrl",
-      "value": "https://crypt.example.com"
+      "value": "https://crypt.example.org"
     },
     {
       "@odata.type": "#microsoft.graph.omaSettingString",

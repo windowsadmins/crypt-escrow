@@ -23,8 +23,8 @@ installs:
     version: '2026.01.21.0909'
 preinstall_script: |
   # Set Crypt Server URL before installation
-  [Environment]::SetEnvironmentVariable('CRYPT_ESCROW_SERVER_URL', 'https://crypt.example.com', 'Machine')
-  Write-Host "Configured Crypt Server: https://crypt.example.com" -ForegroundColor Green
+  [Environment]::SetEnvironmentVariable('CRYPT_ESCROW_SERVER_URL', 'https://crypt.example.org', 'Machine')
+  Write-Host "Configured Crypt Server: https://crypt.example.org" -ForegroundColor Green
 postinstall_script: |
   # Register daily scheduled task for automatic key rotation
   & 'C:\Program Files\Crypt\checkin.exe' register-task --frequency daily
