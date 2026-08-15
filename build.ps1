@@ -49,7 +49,7 @@ if ($Package -or $Deploy) {
 
 if ($Deploy -and [string]::IsNullOrWhiteSpace($CryptServer)) {
     Write-Host "ERROR: -CryptServer parameter is required when using -Deploy" -ForegroundColor Red
-    Write-Host "Example: .\build.ps1 -Deploy -CryptServer https://crypt.ecuad.ca" -ForegroundColor Yellow
+    Write-Host "Example: .\build.ps1 -Deploy -CryptServer https://crypt.example.org" -ForegroundColor Yellow
     exit 1
 }
 
@@ -83,7 +83,7 @@ function Get-SigningCertThumbprint {
     
     # Check CurrentUser store first for enterprise certificate
     $cert = Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue | 
-        Where-Object { $_.HasPrivateKey -and $_.Subject -like '*EmilyCarrU*' -and $_.NotAfter -gt (Get-Date) } |
+        Where-Object { $_.HasPrivateKey -and $_.Subject -like "*$(if ($env:SIGNING_CERT_SUBJECT) { $env:SIGNING_CERT_SUBJECT } else { 'unset-signing-cert-subject' })*" -and $_.NotAfter -gt (Get-Date) } |
         Sort-Object NotAfter -Descending | 
         Select-Object -First 1
     
@@ -97,7 +97,7 @@ function Get-SigningCertThumbprint {
     
     # Check LocalMachine store for enterprise certificate
     $cert = Get-ChildItem Cert:\LocalMachine\My -ErrorAction SilentlyContinue | 
-        Where-Object { $_.HasPrivateKey -and $_.Subject -like '*EmilyCarrU*' -and $_.NotAfter -gt (Get-Date) } |
+        Where-Object { $_.HasPrivateKey -and $_.Subject -like "*$(if ($env:SIGNING_CERT_SUBJECT) { $env:SIGNING_CERT_SUBJECT } else { 'unset-signing-cert-subject' })*" -and $_.NotAfter -gt (Get-Date) } |
         Sort-Object NotAfter -Descending | 
         Select-Object -First 1
     
@@ -319,7 +319,7 @@ function signNuget {
     & nuget.exe sign `
         $Nupkg `
         -CertificateStoreName My `
-        -CertificateSubjectName 'EmilyCarrU Intune Windows Enterprise Certificate' `
+        -CertificateSubjectName "$(if ($env:SIGNING_CERT_CN) { $env:SIGNING_CERT_CN } else { 'unset-signing-cert-cn' })" `
         -Timestamper $tsa
     if ($LASTEXITCODE) {
         Write-Log "nuget sign failed ($LASTEXITCODE) for '$Nupkg' - continuing build" "WARNING"
@@ -790,7 +790,7 @@ Get-BitLockerVolume -MountPoint C:
 (Get-BitLockerVolume -MountPoint C:).KeyProtector
 
 # Test connectivity
-Test-NetConnection crypt.ecuad.ca -Port 443
+Test-NetConnection crypt.example.org -Port 443
 
 # Run with verbose logging
 `$env:CRYPT_LOG_LEVEL = 'Debug'
