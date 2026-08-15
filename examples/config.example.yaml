@@ -42,7 +42,7 @@ server:
     use_mtls: false
     
     # Certificate subject name (CN) to find in Windows Certificate Store
-    # Example: "crypt-client.example.com" or "ECUAD Crypt Client"
+    # Example: "crypt-client.example.com" or "Acme Crypt Client"
     # Can also be set via CRYPT_CERT_SUBJECT environment variable
     # certificate_subject: crypt-client.example.com
     
