@@ -12,7 +12,7 @@
    ```
 
 2. **Configure Crypt Server URL:**
-   The pkgsinfo files are pre-configured with: `https://crypt.ecuad.ca`
+   The pkgsinfo files are pre-configured with: `https://crypt.example.org`
    Edit the yaml files if you need to change this.
 
 3. **Deploy via Intune/Configuration Manager:**
@@ -26,13 +26,13 @@ Test on a BitLocker-enabled device:
 
 ```powershell
 # Test escrow
-checkin escrow --server https://crypt.ecuad.ca
+checkin escrow --server https://crypt.example.org
 
 # Test verification
-checkin verify --server https://crypt.ecuad.ca
+checkin verify --server https://crypt.example.org
 
 # Test rotation
-checkin rotate --server https://crypt.ecuad.ca
+checkin rotate --server https://crypt.example.org
 
 # View config
 checkin config show
@@ -78,11 +78,11 @@ Get-BitLockerVolume -MountPoint C:
 (Get-BitLockerVolume -MountPoint C:).KeyProtector
 
 # Test connectivity
-Test-NetConnection crypt.ecuad.ca -Port 443
+Test-NetConnection crypt.example.org -Port 443
 
 # Run with verbose logging
 $env:CRYPT_LOG_LEVEL = 'Debug'
-checkin escrow --server https://crypt.ecuad.ca
+checkin escrow --server https://crypt.example.org
 ```
 
 ## Deployment Timeline
