@@ -2,7 +2,7 @@ product:
   name: Crypt
   version: ${TIMESTAMP}
   developer: Windows Admins Open Source
-  identifier: ca.ecuad.crypt
+  identifier: ${PACKAGE_ID_PREFIX}.crypt
   description: BitLocker recovery key escrow to Crypt Server with key rotation support
 signing_certificate: ${SIGNING_CERT_CN}
 postinstall_action: none
