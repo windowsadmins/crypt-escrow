@@ -18,6 +18,12 @@ public class Program
     /// otherwise. Everything else this tool owns already lives under
     /// ManagedEncryption; the log was the one thing writing to a root of its own, so
     /// the path the installer configures and the docs quote never existed.
+    ///
+    /// The name is deliberately static. It used to carry the date, which Serilog then
+    /// appended its own date to -- so the files read CryptEscrow_2026030220260302.log,
+    /// and because every day produced a different base name, retainedFileCountLimit
+    /// only ever saw a set of one and never deleted anything. One machine had 179 daily
+    /// files against a limit of 30.
     /// </summary>
     internal static string ResolveLogPath(string? configured)
     {
