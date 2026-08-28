@@ -2,27 +2,75 @@ using System.CommandLine;
 using CryptEscrow.Commands;
 using CryptEscrow.Services;
 using Serilog;
+using Serilog.Events;
 
 namespace CryptEscrow;
 
 public class Program
 {
+    private const string ConsoleTemplate =
+        "[{Timestamp:HH:mm:ss}] [{Level:u3}] {Message:lj}{NewLine}{Exception}";
+
+    private const int DefaultRetainedDays = 30;
+
+    /// <summary>
+    /// %ProgramData%\ManagedEncryption\logs\crypt.log unless the config says
+    /// otherwise. Everything else this tool owns already lives under
+    /// ManagedEncryption; the log was the one thing writing to a root of its own, so
+    /// the path the installer configures and the docs quote never existed.
+    ///
+    /// The name is deliberately static. It used to carry the date, which Serilog then
+    /// appended its own date to -- so the files read CryptEscrow_2026030220260302.log,
+    /// and because every day produced a different base name, retainedFileCountLimit
+    /// only ever saw a set of one and never deleted anything. One machine had 179 daily
+    /// files against a limit of 30.
+    /// </summary>
+    internal static string ResolveLogPath(string? configured)
+    {
+        if (!string.IsNullOrWhiteSpace(configured))
+            return configured;
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "ManagedEncryption", "logs", "crypt.log");
+    }
+
+    /// <summary>
+    /// Maps a configured level name onto Serilog. An unrecognised or missing value
+    /// keeps the previous behaviour rather than silencing the log.
+    /// </summary>
+    internal static LogEventLevel ParseLevel(string? level)
+        => level?.Trim().ToUpperInvariant() switch
+        {
+            "VERBOSE" => LogEventLevel.Verbose,
+            "DEBUG" => LogEventLevel.Debug,
+            "INFO" or "INFORMATION" => LogEventLevel.Information,
+            "WARN" or "WARNING" => LogEventLevel.Warning,
+            "ERROR" => LogEventLevel.Error,
+            "FATAL" => LogEventLevel.Fatal,
+            _ => LogEventLevel.Information
+        };
+
     public static async Task<int> Main(string[] args)
     {
-        // Initialize logging
-        var logPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "CryptEscrow", "Logs", $"CryptEscrow_{DateTime.Now:yyyyMMdd}.log");
-        
-        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
-        
+        // Console-only until the config is read, so a problem loading it is still seen.
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Information()
-            .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss}] [{Level:u3}] {Message:lj}{NewLine}{Exception}")
-            .WriteTo.File(logPath, 
+            .WriteTo.Console(outputTemplate: ConsoleTemplate)
+            .CreateLogger();
+
+        var logging = ConfigService.LoadConfig()?.Logging;
+
+        var logPath = ResolveLogPath(logging?.FilePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Is(ParseLevel(logging?.Level))
+            .WriteTo.Console(outputTemplate: ConsoleTemplate)
+            .WriteTo.File(logPath,
                 outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss}] [{Level:u3}] {Message:lj}{NewLine}{Exception}",
                 rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: 30)
+                retainedFileCountLimit: logging?.RetainedDays ?? DefaultRetainedDays)
             .CreateLogger();
 
         try

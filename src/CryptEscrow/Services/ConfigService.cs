@@ -744,7 +744,16 @@ public class EscrowConfig
 
 public class LoggingConfig
 {
+    /// <summary>Minimum level to record. Unrecognised values fall back to Information.</summary>
     public string Level { get; set; } = "INFO";
-    public string? Path { get; set; }
+
+    /// <summary>
+    /// Where to write the log. Bound from "file_path", which is the key the installer
+    /// writes -- the property was called Path, so the key never bound to anything and
+    /// the setting was silently ignored.
+    /// </summary>
+    public string? FilePath { get; set; }
+
+    /// <summary>Days of rolled log files to keep.</summary>
     public int RetainedDays { get; set; } = 30;
 }
