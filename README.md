@@ -382,7 +382,10 @@ The build script automatically detects code signing certificates from the Window
 
 ## Logging
 
-Logs are written to `C:\ProgramData\CryptEscrow\Logs\CryptEscrow_YYYYMMDD.log`
+Logs are written to `C:\ProgramData\ManagedEncryption\logs\crypt.log`, rolled daily.
+
+Override the location, level and how many days are kept with the `logging` section of
+`config.yaml` (`file_path`, `level`, `retained_days`).
 
 Log rotation is automatic with configurable retention (default: 30 days).
 
