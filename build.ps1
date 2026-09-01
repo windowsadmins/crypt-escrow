@@ -770,7 +770,7 @@ Set via config file (``C:\ProgramData\ManagedEncryption\config.yaml``), registry
 
 ## Monitoring
 
-Logs are written to: ``C:\ProgramData\ManagedEncryption\logs\crypt.log``
+Logs are written to: ``C:\ProgramData\ManagedEncryption\logs\crypt-escrow.log`` (rolled daily, 30 files kept)
 
 Check scheduled task: ``Get-ScheduledTask -TaskName "Crypt BitLocker Key Rotation"``
 

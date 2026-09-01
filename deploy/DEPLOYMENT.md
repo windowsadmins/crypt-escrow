@@ -58,7 +58,7 @@ Set via config file (`C:\ProgramData\ManagedEncryption\config.yaml`) or environm
 
 ## Monitoring
 
-Logs are written to: `C:\ProgramData\CryptEscrow\Logs\CryptEscrow_YYYYMMDD.log`
+Logs are written to: `C:\ProgramData\ManagedEncryption\logs\crypt-escrow.log` (rolled daily, 30 files kept)
 
 Check scheduled task: `Get-ScheduledTask -TaskName "Crypt BitLocker Key Rotation"`
 
