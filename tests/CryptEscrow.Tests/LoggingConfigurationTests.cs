@@ -1,7 +1,11 @@
 using System;
 using System.IO;
 using CryptEscrow;
+using CryptEscrow.Services;
+using Serilog;
+using Serilog.Core;
 using Serilog.Events;
+using Serilog.Formatting.Display;
 using Xunit;
 
 namespace CryptEscrow.Tests;
@@ -22,7 +26,7 @@ public class LoggingConfigurationTests
     {
         var expected = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "ManagedEncryption", "logs", "crypt.log");
+            "ManagedEncryption", "logs", "crypt-escrow.log");
 
         Assert.Equal(expected, Program.ResolveLogPath(null));
     }
@@ -64,5 +68,73 @@ public class LoggingConfigurationTests
     public void UnrecognisedLevelStaysAtInformationRatherThanSilencingTheLog(string? configured)
     {
         Assert.Equal(LogEventLevel.Information, Program.ParseLevel(configured));
+    }
+
+    [Theory]
+    [InlineData("INFO", false, LogEventLevel.Information)]
+    [InlineData("INFO", true, LogEventLevel.Debug)]
+    [InlineData("ERROR", true, LogEventLevel.Debug)]
+    [InlineData("VERBOSE", true, LogEventLevel.Verbose)]
+    [InlineData(null, true, LogEventLevel.Debug)]
+    public void VerboseLowersTheLevelToDebugWithoutRaisingAQuieterOne(
+        string? configured, bool verbose, LogEventLevel expected)
+    {
+        Assert.Equal(expected, Program.ResolveLevel(configured, verbose));
+    }
+
+    [Theory]
+    [InlineData(new[] { "escrow", "-v" }, true)]
+    [InlineData(new[] { "--verbose", "verify" }, true)]
+    [InlineData(new[] { "escrow", "--force" }, false)]
+    [InlineData(new string[0], false)]
+    public void VerboseFlagIsReadFromTheRawArguments(string[] args, bool expected)
+    {
+        Assert.Equal(expected, Program.IsVerbose(args));
+    }
+
+    [Theory]
+    [InlineData(LogEventLevel.Verbose, "DEBUG")]
+    [InlineData(LogEventLevel.Debug, "DEBUG")]
+    [InlineData(LogEventLevel.Information, "INFO ")]
+    [InlineData(LogEventLevel.Warning, "WARN ")]
+    [InlineData(LogEventLevel.Error, "ERROR")]
+    [InlineData(LogEventLevel.Fatal, "ERROR")]
+    public void LevelNamesArePaddedToFiveCharacters(LogEventLevel level, string expected)
+    {
+        Assert.Equal(expected, LevelNameEnricher.For(level));
+        Assert.Equal(5, LevelNameEnricher.For(level).Length);
+    }
+
+    [Theory]
+    [InlineData(LogEventLevel.Information, "INFO  key escrowed")]
+    [InlineData(LogEventLevel.Warning, "WARN  key escrowed")]
+    [InlineData(LogEventLevel.Error, "ERROR key escrowed")]
+    public void FileLinesReadTimestampLevelMessage(LogEventLevel level, string expectedTail)
+    {
+        var sink = new CapturingSink(Program.FileTemplate);
+        var logger = new LoggerConfiguration()
+            .MinimumLevel.Verbose()
+            .Enrich.With<LevelNameEnricher>()
+            .WriteTo.Sink(sink)
+            .CreateLogger();
+
+        logger.Write(level, "key {Action}", "escrowed");
+
+        var line = Assert.Single(sink.Lines).TrimEnd();
+        Assert.Matches(@"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] " + System.Text.RegularExpressions.Regex.Escape(expectedTail) + "$", line);
+    }
+
+    private sealed class CapturingSink(string template) : ILogEventSink
+    {
+        private readonly MessageTemplateTextFormatter _formatter = new(template);
+
+        public List<string> Lines { get; } = [];
+
+        public void Emit(LogEvent logEvent)
+        {
+            var writer = new StringWriter();
+            _formatter.Format(logEvent, writer);
+            Lines.Add(writer.ToString());
+        }
     }
 }

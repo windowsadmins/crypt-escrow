@@ -45,7 +45,7 @@ escrow:
 
 logging:
   level: Info
-  file_path: $configDir\logs\crypt.log
+  file_path: $configDir\logs\crypt-escrow.log
 "@
     Set-Content -Path $configFile -Value $config -Encoding UTF8
     Write-Host "Created config file: $configFile" -ForegroundColor Green

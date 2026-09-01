@@ -382,12 +382,14 @@ The build script automatically detects code signing certificates from the Window
 
 ## Logging
 
-Logs are written to `C:\ProgramData\ManagedEncryption\logs\crypt.log`, rolled daily.
+Logs are written to `C:\ProgramData\ManagedEncryption\logs\crypt-escrow.log`, rolled daily
+with the date appended to the rolled file name and 30 files kept by default. Each line is
+`[yyyy-MM-dd HH:mm:ss] LEVEL  message` in local time, with the level one of `DEBUG`, `INFO`,
+`WARN` or `ERROR`.
 
 Override the location, level and how many days are kept with the `logging` section of
-`config.yaml` (`file_path`, `level`, `retained_days`).
-
-Log rotation is automatic with configurable retention (default: 30 days).
+`config.yaml` (`file_path`, `level`, `retained_days`). Pass `-v`/`--verbose` to any command to
+log at Debug level to both the console and the file for that run.
 
 ## Requirements
 

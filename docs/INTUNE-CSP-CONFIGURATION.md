@@ -170,7 +170,7 @@ Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Cr
 Configuration source is logged when settings are loaded:
 
 ```powershell
-Get-Content 'C:\ProgramData\ManagedEncryption\logs\crypt.log' | Select-String 'registry'
+Get-Content 'C:\ProgramData\ManagedEncryption\logs\crypt-escrow.log' | Select-String 'registry'
 ```
 
 ## Best Practices

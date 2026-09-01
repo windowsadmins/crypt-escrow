@@ -11,10 +11,17 @@ public class Program
     private const string ConsoleTemplate =
         "[{Timestamp:HH:mm:ss}] [{Level:u3}] {Message:lj}{NewLine}{Exception}";
 
+    /// <summary>
+    /// One line per event: local timestamp, the level padded to five characters, the
+    /// message. The level names come from <see cref="LevelNameEnricher"/>.
+    /// </summary>
+    internal const string FileTemplate =
+        "[{Timestamp:yyyy-MM-dd HH:mm:ss}] {LevelName:l} {Message:lj}{NewLine}{Exception}";
+
     private const int DefaultRetainedDays = 30;
 
     /// <summary>
-    /// %ProgramData%\ManagedEncryption\logs\crypt.log unless the config says
+    /// %ProgramData%\ManagedEncryption\logs\crypt-escrow.log unless the config says
     /// otherwise. Everything else this tool owns already lives under
     /// ManagedEncryption; the log was the one thing writing to a root of its own, so
     /// the path the installer configures and the docs quote never existed.
@@ -32,7 +39,7 @@ public class Program
 
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "ManagedEncryption", "logs", "crypt.log");
+            "ManagedEncryption", "logs", "crypt-escrow.log");
     }
 
     /// <summary>
@@ -51,11 +58,30 @@ public class Program
             _ => LogEventLevel.Information
         };
 
+    /// <summary>
+    /// The level the sinks run at. <c>-v</c>/<c>--verbose</c> lowers a quieter
+    /// configured level to Debug; a configured level already at or below Debug is kept.
+    /// </summary>
+    internal static LogEventLevel ResolveLevel(string? configured, bool verbose)
+    {
+        var level = ParseLevel(configured);
+        return verbose && level > LogEventLevel.Debug ? LogEventLevel.Debug : level;
+    }
+
+    /// <summary>
+    /// Read before the command line is parsed, because the logger has to exist before
+    /// the parser can report anything.
+    /// </summary>
+    internal static bool IsVerbose(string[] args)
+        => args.Any(a => a is "-v" or "--verbose");
+
     public static async Task<int> Main(string[] args)
     {
+        var verbose = IsVerbose(args);
+
         // Console-only until the config is read, so a problem loading it is still seen.
         Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Information()
+            .MinimumLevel.Is(verbose ? LogEventLevel.Debug : LogEventLevel.Information)
             .WriteTo.Console(outputTemplate: ConsoleTemplate)
             .CreateLogger();
 
@@ -65,12 +91,14 @@ public class Program
         Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
 
         Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Is(ParseLevel(logging?.Level))
+            .MinimumLevel.Is(ResolveLevel(logging?.Level, verbose))
+            .Enrich.With<LevelNameEnricher>()
             .WriteTo.Console(outputTemplate: ConsoleTemplate)
             .WriteTo.File(logPath,
-                outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss}] [{Level:u3}] {Message:lj}{NewLine}{Exception}",
+                outputTemplate: FileTemplate,
                 rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: logging?.RetainedDays ?? DefaultRetainedDays)
+                retainedFileCountLimit: logging?.RetainedDays ?? DefaultRetainedDays,
+                shared: true)
             .CreateLogger();
 
         try
@@ -94,9 +122,14 @@ public class Program
                 aliases: ["--skip-cert-check"],
                 description: "Skip TLS certificate validation");
 
+            var verboseOption = new Option<bool>(
+                aliases: ["--verbose", "-v"],
+                description: "Log at Debug level to the console and the log file");
+
             rootCommand.AddGlobalOption(serverOption);
             rootCommand.AddGlobalOption(driveOption);
             rootCommand.AddGlobalOption(skipCertOption);
+            rootCommand.AddGlobalOption(verboseOption);
 
             // escrow command
             var escrowCommand = new Command("escrow", "Escrow BitLocker recovery key to Crypt Server");
