@@ -95,7 +95,8 @@ jobs:
 
             (Get-Content "build/pkg/build-info.yaml" -Raw) `
               -replace '\{\{VERSION\}\}', $version `
-              -replace '\{\{ARCHITECTURE\}\}', $arch |
+              -replace '\{\{ARCHITECTURE\}\}', $arch `
+              -replace '\$\{PACKAGE_ID_PREFIX\}', 'com.github.windowsadmins' |
               Set-Content "$stagingDir/build-info.yaml" -Encoding UTF8
 
             (Get-Content "build/pkg/preinstall.ps1" -Raw) `
