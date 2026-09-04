@@ -21,14 +21,16 @@ namespace CryptEscrow.Tests;
 /// </remarks>
 public class LoggingConfigurationTests
 {
+    private static readonly DateTime Stamp = new(2026, 9, 3, 14, 5, 9);
+
     [Fact]
     public void DefaultsUnderManagedEncryptionWithTheRestOfTheTool()
     {
         var expected = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "ManagedEncryption", "logs", "crypt-escrow.log");
+            "ManagedEncryption", "logs", "2026-09-03", "crypt-escrow.log");
 
-        Assert.Equal(expected, Program.ResolveLogPath(null));
+        Assert.Equal(expected, Program.ResolveLogPath(null, Stamp));
     }
 
     [Theory]
@@ -36,15 +38,40 @@ public class LoggingConfigurationTests
     [InlineData("   ")]
     public void BlankConfiguredPathFallsBackToTheDefault(string configured)
     {
-        Assert.Equal(Program.ResolveLogPath(null), Program.ResolveLogPath(configured));
+        Assert.Equal(Program.ResolveLogPath(null, Stamp), Program.ResolveLogPath(configured, Stamp));
     }
 
     [Fact]
-    public void ConfiguredPathIsHonoured()
+    public void ConfiguredPathKeepsItsNameInsideTheDayDirectory()
     {
         var configured = Path.Combine("D:", "logs", "crypt.log");
+        var expected = Path.Combine("D:", "logs", "2026-09-03", "crypt.log");
 
-        Assert.Equal(configured, Program.ResolveLogPath(configured));
+        Assert.Equal(expected, Program.ResolveLogPath(configured, Stamp));
+    }
+
+    [Fact]
+    public void RetentionRemovesDayDirectoriesAndTheFlatLogsItReplaced()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "crypt-escrow-retention-" + Guid.NewGuid().ToString("n"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "2026-07-01"));
+            Directory.CreateDirectory(Path.Combine(root, "2026-09-03"));
+            var stale = Path.Combine(root, "crypt-escrow20260701.log");
+            File.WriteAllText(stale, "old\n");
+            File.SetLastWriteTime(stale, new DateTime(2026, 7, 1));
+
+            var removed = Program.PruneLogDirectory(root, 30, Stamp);
+
+            Assert.Equal(2, removed);
+            Assert.Equal(new[] { "2026-09-03" }, Directory.GetDirectories(root).Select(Path.GetFileName).ToArray());
+            Assert.Empty(Directory.GetFiles(root));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
     }
 
     [Theory]
