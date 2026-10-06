@@ -37,9 +37,22 @@
       </Directory>
     </StandardDirectory>
 
+    <!-- Credentials live in HKLM\SOFTWARE\Crypt\ManagedEncryption\Secrets, readable only by
+         SYSTEM and Administrators. MSI fails the install if it cannot apply this ACL.
+         The CLI moves any credential it finds in the readable policy or settings keys here. -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Component Id="SecretsStore" Guid="4D2A9C61-7E3B-4F85-A1C6-2B9E0D7F5A38" Bitness="always64">
+        <RegistryKey Root="HKLM" Key="SOFTWARE\Crypt\ManagedEncryption\Secrets" ForceCreateOnInstall="yes">
+          <PermissionEx Sddl="D:PAI(A;CI;KA;;;SY)(A;CI;KA;;;BA)" />
+        </RegistryKey>
+        <RegistryValue Root="HKLM" Key="SOFTWARE\Crypt\ManagedEncryption" Name="SecretsStore" Value="1" Type="integer" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
     <ComponentGroup Id="ProductComponents">
       <ComponentRef Id="CryptExe" />
       <ComponentRef Id="DataFolder" />
+      <ComponentRef Id="SecretsStore" />
     </ComponentGroup>
     
     <CustomAction Id="RegisterScheduledTask" 

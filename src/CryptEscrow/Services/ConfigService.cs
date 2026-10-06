@@ -318,8 +318,26 @@ public class ConfigService
     public static string? GetPostRunCommand() => ResolvePostRunCommand().Value;
 
     /// <summary>The API key for server authentication.</summary>
-    public static Resolved<string?> ResolveApiKey() =>
-        ResolveString("ApiKey", "CRYPT_API_KEY", c => c.Server?.Auth?.ApiKey);
+    /// <summary>
+    /// The API key. Policy and machine settings hold it only until an elevated run moves
+    /// it into <see cref="SecretStore"/>, which then supplies it; the environment and
+    /// config.yaml follow, for runs that have not migrated yet.
+    /// </summary>
+    public static Resolved<string?> ResolveApiKey()
+    {
+        if (GetPolicyValue("ApiKey") is { } policy)
+            return new(policy, SettingSource.Policy);
+        if (GetSettingsValue("ApiKey") is { } settings)
+            return new(settings, SettingSource.MachineSettings);
+        if (SecretStore.Read("ApiKey") is { } stored)
+            return new(stored, SecretStore.ReadSource("ApiKey") ?? SettingSource.MachineSettings);
+        if (Environment.GetEnvironmentVariable("CRYPT_API_KEY") is { Length: > 0 } env)
+            return new(env, SettingSource.Environment);
+        var file = LoadConfig()?.Server?.Auth?.ApiKey;
+        return string.IsNullOrWhiteSpace(file)
+            ? new(null, SettingSource.Default)
+            : new(file, SettingSource.LegacyFile);
+    }
 
     public static string? GetApiKey() => ResolveApiKey().Value;
 
@@ -570,6 +588,16 @@ public class ConfigService
         else
         {
             throw new ArgumentException($"Unknown configuration key: {key}");
+        }
+
+        // Credentials go to the protected store, never to the user-readable settings key.
+        if (SecretStore.IsSecret(valueName))
+        {
+            if (SecretStore.IsSetByPolicy(valueName))
+                throw new InvalidOperationException($"{valueName} is managed by policy");
+            SecretStore.Write(valueName, value);
+            Log.Information("Saved {ValueName} to the protected store", valueName);
+            return;
         }
 
         if (BoolSettings.Contains(valueName))

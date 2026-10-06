@@ -224,6 +224,10 @@ The client supports API key and mutual TLS (mTLS) authentication.
 
 **API Key:**
 
+The API key is kept in `HKLM\SOFTWARE\Crypt\ManagedEncryption\Secrets`, which only SYSTEM and Administrators can read. Set it with `checkin config set server.auth.api_key <key>` from an elevated prompt, or by policy. Each elevated run moves an API key it finds in a readable place into that key: the policy keys, the settings key, the machine `CRYPT_API_KEY` variable or `config.yaml`. The value is written and read back before the readable copy is removed. A policy copy is blanked rather than deleted, so the setting still shows as managed, and a value from a lower layer never replaces one that came from policy.
+
+The older forms below are still read until that move happens:
+
 ```yaml
 server:
   auth:

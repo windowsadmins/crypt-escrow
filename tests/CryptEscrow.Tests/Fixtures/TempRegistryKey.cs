@@ -19,6 +19,9 @@ internal sealed class TempRegistryKey : IDisposable
     private readonly Func<string, string?>? _previousPolicyReader;
     private readonly Func<string, string?>? _previousSettingsReader;
     private readonly Action<string, string>? _previousSettingsWriter;
+    private readonly SecretStore.Locations? _previousLocations;
+    private readonly Func<string, string?>? _previousEnvReader;
+    private readonly Action<string>? _previousEnvClearer;
 
     public TempRegistryKey()
     {
@@ -34,6 +37,39 @@ internal sealed class TempRegistryKey : IDisposable
         ConfigService.PolicyReaderOverride = name => ReadValue(_policy, name);
         ConfigService.SettingsReaderOverride = name => ReadValue(_settings, name);
         ConfigService.SettingsWriterOverride = (name, value) => Write(_settings, name, value, RegistryValueKind.String);
+
+        // The protected store and its readable sources, all under the same HKCU subtree.
+        // ACLs are not applied: a protected HKCU key would lock the test user out.
+        SecretsPath = _root + @"\Secrets";
+        PolicyMdmPath = _root + @"\PolicyMdm";
+        _previousLocations = SecretStore.LocationsOverride;
+        SecretStore.LocationsOverride = new SecretStore.Locations(
+            Registry.CurrentUser, SecretsPath, [_policy, PolicyMdmPath], _settings, ApplyAcl: false);
+        _previousEnvReader = SecretStore.MachineEnvironmentReader;
+        _previousEnvClearer = SecretStore.MachineEnvironmentClearer;
+        SecretStore.MachineEnvironmentReader = name => MachineEnvironment.TryGetValue(name, out var v) ? v : null;
+        SecretStore.MachineEnvironmentClearer = name => MachineEnvironment.Remove(name);
+    }
+
+    public string Root => _root;
+    public string SecretsPath { get; }
+    public string PolicyMdmPath { get; }
+
+    /// <summary>Stand-in for machine-level environment variables.</summary>
+    public Dictionary<string, string> MachineEnvironment { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Reads back a policy value as stored, including an empty one.</summary>
+    public object? GetPolicy(string name)
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(_policy);
+        return key?.GetValue(name);
+    }
+
+    /// <summary>Reads back a protected-store value as stored.</summary>
+    public object? GetSecret(string name)
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(SecretsPath);
+        return key?.GetValue(name);
     }
 
     /// <summary>Sets a policy value.</summary>
@@ -88,6 +124,9 @@ internal sealed class TempRegistryKey : IDisposable
         ConfigService.PolicyReaderOverride = _previousPolicyReader;
         ConfigService.SettingsReaderOverride = _previousSettingsReader;
         ConfigService.SettingsWriterOverride = _previousSettingsWriter;
+        SecretStore.LocationsOverride = _previousLocations;
+        SecretStore.MachineEnvironmentReader = _previousEnvReader;
+        SecretStore.MachineEnvironmentClearer = _previousEnvClearer;
         try
         {
             Registry.CurrentUser.DeleteSubKeyTree(_root, throwOnMissingSubKey: false);

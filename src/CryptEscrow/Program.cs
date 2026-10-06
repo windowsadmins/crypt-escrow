@@ -134,6 +134,13 @@ public class Program
     internal static bool IsVerbose(string[] args)
         => args.Any(a => a is "-v" or "--verbose");
 
+    internal static bool IsElevated()
+    {
+        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        return new System.Security.Principal.WindowsPrincipal(identity)
+            .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+    }
+
     public static async Task<int> Main(string[] args)
     {
         var verbose = IsVerbose(args);
@@ -149,6 +156,12 @@ public class Program
         // trusts what it finds. Noted now, logged once the file log is open.
         var guardNotes = DataDirectoryGuard.IsRunningAsSystem()
             ? DataDirectoryGuard.Secure(ConfigService.DataDirectory)
+            : new List<string>();
+
+        // Credentials found in a user-readable place move to the protected store before
+        // the configuration is read. Only an elevated run can write the store.
+        var secretNotes = IsElevated()
+            ? SecretStore.MigrateReadableCopies()
             : new List<string>();
 
         // A config file this run ignores is recorded now and logged once the file log
@@ -181,6 +194,8 @@ public class Program
 
         foreach (var note in guardNotes)
             Log.Warning("Data directory: {Note}", note);
+        foreach (var note in secretNotes)
+            Log.Warning("Secrets: {Note}", note);
         ConfigService.DeferIgnoredFileWarnings = false;
         foreach (var note in ConfigService.IgnoredFileNotes)
             Log.Warning("{Note}", note);
@@ -281,6 +296,22 @@ public class Program
                 Environment.ExitCode = result;
             }, serverOption, frequencyOption);
             rootCommand.AddCommand(registerCommand);
+
+            // migrate-secrets: the installer's explicit step. Startup has already migrated;
+            // this reports whether anything failed, through the exit code.
+            var migrateCommand = new Command("migrate-secrets", "Move credentials into the protected store (admin)")
+            {
+                IsHidden = true
+            };
+            migrateCommand.SetHandler(() =>
+            {
+                Environment.ExitCode = !IsElevated()
+                    ? ExitCodes.ConfigurationError
+                    : secretNotes.Any(n => n.StartsWith("Could not", StringComparison.Ordinal))
+                        ? ExitCodes.ConfigurationError
+                        : ExitCodes.Success;
+            });
+            rootCommand.AddCommand(migrateCommand);
 
             await rootCommand.InvokeAsync(args);
             return Environment.ExitCode;

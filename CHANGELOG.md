@@ -41,6 +41,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entries not created by an administrator, and never follows links. Files
   SYSTEM or Administrators own, such as a deployed `config.yaml`, are kept.
 
+- Credentials move to `HKLM\SOFTWARE\Crypt\ManagedEncryption\Secrets`, which
+  only SYSTEM and Administrators can read. Every elevated run, including the one
+  the installer starts, moves an API key it finds in policy (blanked, so it still
+  shows as managed), the settings key, the machine environment or `config.yaml`
+  into it. The value is written and read back before the readable copy is
+  removed, and a lower layer never replaces a value that came from policy.
+  `config set server.auth.api_key` writes the store. The MSI and the
+  postinstall create the key with that ACL and fail the install if they cannot.
+
 ### Removed
 
 - The unused `scripts/postinstall.ps1`, an outdated copy of

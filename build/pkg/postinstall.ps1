@@ -102,6 +102,34 @@ if ($serverUrl) {
     }
 }
 
+# Credentials live in a registry key only SYSTEM and Administrators can read. If its
+# ACL cannot be set, the install fails rather than leave a credential readable.
+$secretsPath = 'SOFTWARE\Crypt\ManagedEncryption\Secrets'
+$trustedSids = @('S-1-5-18', 'S-1-5-32-544')
+try {
+    $hklm = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine', 'Registry64')
+    $secretsKey = $hklm.CreateSubKey($secretsPath, $true)
+    $acl = New-Object System.Security.AccessControl.RegistrySecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($sid in $trustedSids) {
+        $acl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule(
+            (New-Object System.Security.Principal.SecurityIdentifier $sid),
+            'FullControl', 'ContainerInherit', 'None', 'Allow')))
+    }
+    $secretsKey.SetAccessControl($acl)
+    $applied = $secretsKey.GetAccessControl()
+    $others = $applied.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) |
+        Where-Object { $_.AccessControlType -eq 'Allow' -and $trustedSids -notcontains $_.IdentityReference.Value }
+    if (-not $applied.AreAccessRulesProtected -or $others) {
+        throw 'other accounts can still read it'
+    }
+    $secretsKey.Dispose()
+    Write-Host "Secured HKLM\$secretsPath" -ForegroundColor Green
+} catch {
+    Write-Host "Could not protect HKLM\$secretsPath`: $_" -ForegroundColor Red
+    exit 1
+}
+
 # Register scheduled task for automatic key rotation
 try {
     $cryptExe = Join-Path $installPath 'checkin.exe'
@@ -114,6 +142,16 @@ try {
     }
 } catch {
     Write-Host "Could not register scheduled task: $_" -ForegroundColor Yellow
+}
+
+# Move any credential still in policy, settings, the machine environment or config.yaml
+# into the protected store. Each copy is removed only after the store holds it.
+$cryptExe = Join-Path $installPath 'checkin.exe'
+if (Test-Path $cryptExe) {
+    & $cryptExe migrate-secrets 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Some credentials could not be moved to the protected store; see the log" -ForegroundColor Yellow
+    }
 }
 
 Write-Host "`nCrypt installation complete!" -ForegroundColor Green

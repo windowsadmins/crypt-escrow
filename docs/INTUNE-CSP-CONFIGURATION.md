@@ -44,7 +44,7 @@ HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\Crypt~Policy~ManagedEncrypt
 | `ValidateKey` | REG_SZ or REG_DWORD | Validate key locally before escrow | `true` or `1` |
 | `SkipUsers` | REG_SZ | Comma-separated list of users to skip | `admin,service` |
 | `PostRunCommand` | REG_SZ | Command to run after errors | `shutdown /r /t 300` |
-| `ApiKey` | REG_SZ | API key for server authentication | |
+| `ApiKey` | REG_SZ | API key for server authentication. The first elevated run moves it to `HKLM\SOFTWARE\Crypt\ManagedEncryption\Secrets` (SYSTEM and Administrators only) and blanks the policy copy. | |
 | `ApiKeyHeader` | REG_SZ | API key header name | `X-API-Key` |
 | `UseMtls` | REG_SZ or REG_DWORD | Use mutual TLS | `true` or `1` |
 | `CertificateSubject` | REG_SZ | Client certificate subject (certificate store) | `crypt-client.example.org` |
