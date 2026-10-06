@@ -58,6 +58,9 @@ public class ConfigService
 
     private static string ConfigDir => ResolvedOverrideDir ?? DefaultConfigDir;
 
+    /// <summary>ProgramData\ManagedEncryption, where the config file and state files live.</summary>
+    internal static string DataDirectory => ConfigDir;
+
     private static string ConfigPath =>
         ResolvedOverrideDir is null ? DefaultConfigPath : ConfigPathOverride!;
 

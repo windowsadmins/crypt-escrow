@@ -144,6 +144,13 @@ public class Program
             .WriteTo.Console(outputTemplate: ConsoleTemplate)
             .CreateLogger();
 
+        // Before anything is read from ProgramData\ManagedEncryption: an install made
+        // before the installer set its ACL lets any user add files there, and this run
+        // trusts what it finds. Noted now, logged once the file log is open.
+        var guardNotes = DataDirectoryGuard.IsRunningAsSystem()
+            ? DataDirectoryGuard.Secure(ConfigService.DataDirectory)
+            : new List<string>();
+
         // A config file this run ignores is recorded now and logged once the file log
         // is open, so the reason reaches the log and not only the console.
         ConfigService.DeferIgnoredFileWarnings = true;
@@ -172,6 +179,8 @@ public class Program
                 shared: true)
             .CreateLogger();
 
+        foreach (var note in guardNotes)
+            Log.Warning("Data directory: {Note}", note);
         ConfigService.DeferIgnoredFileWarnings = false;
         foreach (var note in ConfigService.IgnoredFileNotes)
             Log.Warning("{Note}", note);

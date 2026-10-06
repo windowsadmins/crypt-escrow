@@ -36,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `config.yaml`, `escrow.marker` and `last_escrow.txt` are ignored, with a
   logged reason, when they or their folder could be written by an account
   other than SYSTEM, Administrators or TrustedInstaller.
+- On every run as SYSTEM, the tool repairs that ACL itself, so installs
+  that predate it are fixed without a reinstall. It removes links and
+  entries not created by an administrator, and never follows links. Files
+  SYSTEM or Administrators own, such as a deployed `config.yaml`, are kept.
+
+### Removed
+
+- The unused `scripts/postinstall.ps1`, an outdated copy of
+  `build/pkg/postinstall.ps1`.
 
 ## [1.2.0] - 2026-04-11
 
