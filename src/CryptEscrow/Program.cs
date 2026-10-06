@@ -18,8 +18,6 @@ public class Program
     internal const string FileTemplate =
         "[{Timestamp:yyyy-MM-dd HH:mm:ss}] {LevelName:l} {Message:lj}{NewLine}{Exception}";
 
-    private const int DefaultRetainedDays = 30;
-
     /// <summary>
     /// %ProgramData%\ManagedEncryption\logs unless the config says otherwise.
     /// Everything else this tool owns already lives under ManagedEncryption; the log
@@ -146,17 +144,20 @@ public class Program
             .WriteTo.Console(outputTemplate: ConsoleTemplate)
             .CreateLogger();
 
-        var logging = ConfigService.LoadConfig()?.Logging;
+        // A config file this run ignores is recorded now and logged once the file log
+        // is open, so the reason reaches the log and not only the console.
+        ConfigService.DeferIgnoredFileWarnings = true;
+        var logging = ConfigService.GetLoggingConfig();
 
         var now = DateTime.Now;
-        var retainedDays = logging?.RetainedDays ?? DefaultRetainedDays;
-        var logPath = ResolveLogPath(logging?.FilePath, now);
+        var retainedDays = logging.RetainedDays;
+        var logPath = ResolveLogPath(logging.FilePath, now);
         var logDirectory = Path.GetDirectoryName(logPath)!;
         Directory.CreateDirectory(logDirectory);
-        PruneLogDirectory(ResolveLogDirectory(logging?.FilePath), retainedDays, now);
+        PruneLogDirectory(ResolveLogDirectory(logging.FilePath), retainedDays, now);
 
         Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Is(ResolveLevel(logging?.Level, verbose))
+            .MinimumLevel.Is(ResolveLevel(logging.Level, verbose))
             .Enrich.With<LevelNameEnricher>()
             .WriteTo.Console(outputTemplate: ConsoleTemplate)
             // Serilog's own rolling is off: the day is the directory, so a static file
@@ -171,6 +172,10 @@ public class Program
                 shared: true)
             .CreateLogger();
 
+        ConfigService.DeferIgnoredFileWarnings = false;
+        foreach (var note in ConfigService.IgnoredFileNotes)
+            Log.Warning("{Note}", note);
+
         try
         {
             var rootCommand = new RootCommand("BitLocker recovery key escrow to Crypt Server")
@@ -181,7 +186,7 @@ public class Program
             // Global options
             var serverOption = new Option<string?>(
                 aliases: ["--server", "-s"],
-                description: "Crypt Server URL (or set CRYPT_ESCROW_SERVER_URL)");
+                description: "Crypt Server URL for this run; overrides policy and settings");
             
             var driveOption = new Option<string>(
                 aliases: ["--drive", "-d"],
@@ -244,7 +249,7 @@ public class Program
             configShowCommand.SetHandler(() => ConfigCommand.Show());
             configCommand.AddCommand(configShowCommand);
             
-            var configSetCommand = new Command("set", "Set configuration value");
+            var configSetCommand = new Command("set", @"Set a machine setting (HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings); needs admin");
             var keyArg = new Argument<string>("key", "Configuration key");
             var valueArg = new Argument<string>("value", "Configuration value");
             configSetCommand.AddArgument(keyArg);

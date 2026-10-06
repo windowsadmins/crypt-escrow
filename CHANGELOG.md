@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Settings precedence.** Policy now overrides environment variables. The
+  chain is: command line, policy (Group Policy path, then the Intune
+  PolicyManager path, both unchanged), machine settings, environment, the
+  legacy `config.yaml`, defaults.
+- `checkin config set` writes `HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings`
+  instead of `config.yaml`, and needs an elevated prompt.
+- `checkin config show` lists every setting with the layer it came from.
+- The package postinstall writes a machine `CRYPT_ESCROW_SERVER_URL` to the
+  settings key instead of generating `config.yaml`.
+
+### Added
+
+- Machine settings key `HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings`,
+  read in the 64-bit registry view.
+- Policy support for every setting the tool reads, including
+  `CertificateStoreLocation`, `CertificateStoreName`, `LogLevel`,
+  `LogFilePath` and `LogRetainedDays`.
+
+### Security
+
+- The MSI and the package postinstall set an explicit ACL on
+  `C:\ProgramData\ManagedEncryption`: SYSTEM and Administrators full control,
+  Users read, no inheritance. The postinstall also removes entries there that
+  were not created by an administrator.
+- `config.yaml`, `escrow.marker` and `last_escrow.txt` are ignored, with a
+  logged reason, when they or their folder could be written by an account
+  other than SYSTEM, Administrators or TrustedInstaller.
+
 ## [1.2.0] - 2026-04-11
 
 Rollup of four PRs merged on the same day, covering a major mTLS

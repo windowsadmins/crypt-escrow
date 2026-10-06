@@ -10,10 +10,13 @@ CryptEscrow supports enterprise configuration through Windows registry, allowing
 
 Settings are evaluated in this order (highest to lowest priority):
 
-1. **Command-line options** - Direct CLI parameters
-2. **Environment variables** - `CRYPT_ESCROW_*` variables
-3. **Registry (CSP/OMA-URI)** - Enterprise policy from Intune
-4. **YAML config file** - Local `C:\ProgramData\ManagedEncryption\config.yaml`
+1. **Command-line options** - `--server` and `--skip-cert-check` for that run
+2. **Policy** - the Group Policy path, then the Intune PolicyManager path below
+3. **Machine settings** - `HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings` (64-bit view, written by `checkin config set` run elevated), then the matching `CRYPT_*` environment variable
+4. **YAML config file** - `C:\ProgramData\ManagedEncryption\config.yaml`, only while it and its folder are writable by SYSTEM and Administrators alone
+5. **Built-in defaults**
+
+Environment variables never override policy. A policy value that cannot be parsed (for example a non-numeric `KeyEscrowIntervalHours`) is skipped and the next layer applies.
 
 ## Registry Paths
 
@@ -41,6 +44,22 @@ HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\Crypt~Policy~ManagedEncrypt
 | `ValidateKey` | REG_SZ or REG_DWORD | Validate key locally before escrow | `true` or `1` |
 | `SkipUsers` | REG_SZ | Comma-separated list of users to skip | `admin,service` |
 | `PostRunCommand` | REG_SZ | Command to run after errors | `shutdown /r /t 300` |
+| `ApiKey` | REG_SZ | API key for server authentication | |
+| `ApiKeyHeader` | REG_SZ | API key header name | `X-API-Key` |
+| `UseMtls` | REG_SZ or REG_DWORD | Use mutual TLS | `true` or `1` |
+| `CertificateSubject` | REG_SZ | Client certificate subject (certificate store) | `crypt-client.example.org` |
+| `CertificateThumbprint` | REG_SZ | Client certificate thumbprint (certificate store) | |
+| `CertificateStoreLocation` | REG_SZ | `LocalMachine` or `CurrentUser` | `LocalMachine` |
+| `CertificateStoreName` | REG_SZ | Certificate store name | `My` |
+| `PfxPath` | REG_SZ | Client certificate PFX file | `C:\ProgramData\ManagedEncryption\client.pfx` |
+| `PfxPasswordCredential` | REG_SZ | Credential Manager entry holding the PFX passphrase | `CryptPfxPassword` |
+| `ClientCertPath` | REG_SZ | Client certificate PEM file | |
+| `ClientKeyPath` | REG_SZ | Client private key PEM file | |
+| `LogLevel` | REG_SZ | `DEBUG`, `INFO`, `WARN`, `ERROR` | `INFO` |
+| `LogFilePath` | REG_SZ | Log file path | |
+| `LogRetainedDays` | REG_SZ or REG_DWORD | Days of logs to keep | `30` |
+
+The same value names are read from the machine settings key, `HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings`.
 
 ## Intune Configuration
 
@@ -204,8 +223,9 @@ Get-Content 'C:\ProgramData\ManagedEncryption\logs\crypt-escrow.log' | Select-St
 
 Remember the configuration hierarchy:
 - CLI options override everything
-- Environment variables override registry and YAML
-- Registry overrides YAML file only
+- Policy overrides machine settings, environment variables and YAML
+- Machine settings override environment variables and YAML
+- `checkin config show` prints the layer each value came from
 
 If a setting isn't being applied, check higher-priority sources first.
 

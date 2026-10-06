@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 using Serilog;
@@ -5,9 +6,35 @@ using Microsoft.Win32;
 
 namespace CryptEscrow.Services;
 
+/// <summary>Where an effective setting came from.</summary>
+public enum SettingSource
+{
+    Default,
+    LegacyFile,
+    Environment,
+    MachineSettings,
+    Policy,
+    CommandLine
+}
+
+/// <summary>An effective setting and the layer that supplied it.</summary>
+public readonly record struct Resolved<T>(T Value, SettingSource Source);
+
 /// <summary>
-/// Configuration service with registry (CSP/OMA-URI), YAML file, and environment variable support.
+/// Resolves every setting through one chain, highest first:
+/// <list type="number">
+///   <item>An explicit command-line flag for this run.</item>
+///   <item>Policy: <c>HKLM\SOFTWARE\Policies\Crypt\ManagedEncryption</c>, then the Intune
+///   PolicyManager path <c>Crypt~Policy~ManagedEncryption</c>.</item>
+///   <item>Machine settings: <c>HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings</c> (64-bit
+///   view), then the matching <c>CRYPT_*</c> environment variable.</item>
+///   <item>The legacy <c>C:\ProgramData\ManagedEncryption\config.yaml</c>, only while no
+///   one but SYSTEM and Administrators could have written it.</item>
+///   <item>The built-in default.</item>
+/// </list>
+/// Environment variables never beat policy or the settings key.
 /// </summary>
+[SupportedOSPlatform("windows")]
 public class ConfigService
 {
     private static readonly string DefaultConfigDir = Path.Combine(
@@ -37,65 +64,100 @@ public class ConfigService
     private static string MarkerPath =>
         ResolvedOverrideDir is { } dir ? Path.Combine(dir, "escrow.marker") : DefaultMarkerPath;
 
-    // CSP/OMA-URI registry paths for enterprise policy
-    private const string RegistryBasePath = @"SOFTWARE\Policies\Crypt\ManagedEncryption";
-    private const string RegistryBasePathMdm = @"SOFTWARE\Microsoft\PolicyManager\current\device\Crypt~Policy~ManagedEncryption";
+    private static string TimestampPath => Path.Combine(ConfigDir, "last_escrow.txt");
 
-    // Test seam: when non-null, registry reads go through this function instead of
-    // the HKLM paths above. Lets tests isolate under HKCU without admin. Production
-    // code leaves this null.
-    internal static Func<string, string?>? RegistryReaderOverride { get; set; }
+    // Policy paths. Intune already targets both, so they stay as they are.
+    internal const string PolicyKeyPath = @"SOFTWARE\Policies\Crypt\ManagedEncryption";
+    internal const string PolicyKeyPathMdm = @"SOFTWARE\Microsoft\PolicyManager\current\device\Crypt~Policy~ManagedEncryption";
+
+    /// <summary>The tool's own machine settings, written by <c>checkin config set</c>.</summary>
+    internal const string SettingsKeyPath = @"SOFTWARE\Crypt\ManagedEncryption\Settings";
+
+    // Test seams: when non-null, policy and settings reads and writes go through these
+    // instead of HKLM, so tests can isolate under HKCU without admin. Production code
+    // leaves them null.
+    internal static Func<string, string?>? PolicyReaderOverride { get; set; }
+    internal static Func<string, string?>? SettingsReaderOverride { get; set; }
+    internal static Action<string, string>? SettingsWriterOverride { get; set; }
+
+    // Test seam: replaces the ACL check on files under ProgramData. Returns null when
+    // the file is trusted, otherwise the reason it is not.
+    internal static Func<string, string?>? FileTrustOverride { get; set; }
 
     private static readonly IDeserializer YamlDeserializer = new DeserializerBuilder()
         .WithNamingConvention(UnderscoredNamingConvention.Instance)
         .IgnoreUnmatchedProperties()
         .Build();
 
-    private static readonly ISerializer YamlSerializer = new SerializerBuilder()
-        .WithNamingConvention(UnderscoredNamingConvention.Instance)
-        .Build();
+    private static readonly object NotesLock = new();
+    private static readonly List<string> IgnoredFileNotesList = new();
 
     /// <summary>
-    /// Reads an enterprise policy value from the registry (CSP/OMA-URI) and
-    /// returns its string representation. Checks both the standard Group
-    /// Policy path and the MDM PolicyManager path. Supports <c>REG_SZ</c>,
-    /// <c>REG_DWORD</c>, and <c>REG_QWORD</c>; other types (<c>REG_BINARY</c>,
-    /// <c>REG_MULTI_SZ</c>) are ignored. Returns <c>null</c> when the value
-    /// is absent or the type is unsupported.
+    /// One line per file this process ignored because a non-administrator could have
+    /// written it. Program logs these again once the file log is open.
     /// </summary>
-    internal static string? GetRegistryValue(string valueName)
+    public static IReadOnlyList<string> IgnoredFileNotes
     {
-        // Test seam — tests redirect to an HKCU subkey so they can run without admin.
-        if (RegistryReaderOverride is { } reader)
-            return reader(valueName);
-
-        return ReadValueFromPath(RegistryBasePath, valueName, "GP")
-            ?? ReadValueFromPath(RegistryBasePathMdm, valueName, "MDM");
+        get { lock (NotesLock) return IgnoredFileNotesList.ToArray(); }
     }
 
-    private static string? ReadValueFromPath(string path, string valueName, string policySource)
+    /// <summary>
+    /// While true, an ignored file is recorded but not logged. Program sets it while
+    /// only the console log exists, then logs <see cref="IgnoredFileNotes"/> itself.
+    /// </summary>
+    internal static bool DeferIgnoredFileWarnings { get; set; }
+
+    internal static void ClearIgnoredFileNotes()
+    {
+        lock (NotesLock) IgnoredFileNotesList.Clear();
+    }
+
+    /// <summary>
+    /// Reads a policy value: the Group Policy path, then the Intune PolicyManager path.
+    /// Supports <c>REG_SZ</c>, <c>REG_DWORD</c> and <c>REG_QWORD</c>; returns <c>null</c>
+    /// when the value is absent or of another type.
+    /// </summary>
+    internal static string? GetPolicyValue(string valueName)
+    {
+        if (PolicyReaderOverride is { } reader)
+            return reader(valueName);
+
+        return ReadMachineValue(PolicyKeyPath, valueName, "policy")
+            ?? ReadMachineValue(PolicyKeyPathMdm, valueName, "MDM policy");
+    }
+
+    /// <summary>Reads a value from the machine settings key.</summary>
+    internal static string? GetSettingsValue(string valueName)
+    {
+        if (SettingsReaderOverride is { } reader)
+            return reader(valueName);
+
+        return ReadMachineValue(SettingsKeyPath, valueName, "machine settings");
+    }
+
+    private static string? ReadMachineValue(string path, string valueName, string layer)
     {
         try
         {
-            using var key = Registry.LocalMachine.OpenSubKey(path);
-            var raw = key?.GetValue(valueName);
-            var stringValue = ConvertToConfigString(raw);
+            // The 64-bit view always, so a 32-bit host never reads WOW6432Node instead.
+            using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            using var key = baseKey.OpenSubKey(path);
+            var stringValue = ConvertToConfigString(key?.GetValue(valueName));
             if (stringValue != null)
             {
-                Log.Debug("Found registry value {ValueName} from {PolicySource}", valueName, policySource);
+                Log.Debug("Found {ValueName} in {Layer}", valueName, layer);
             }
             return stringValue;
         }
         catch (Exception ex)
         {
-            Log.Debug(ex, "Failed to read registry value {ValueName} from {PolicySource}", valueName, policySource);
+            Log.Debug(ex, "Failed to read {ValueName} from {Layer}", valueName, layer);
             return null;
         }
     }
 
     /// <summary>
-    /// Converts a raw registry value to its string form suitable for parsing by
-    /// <see cref="GetRegistryBool"/> / <see cref="GetRegistryInt"/>.
+    /// Converts a raw registry value to its string form.
     /// <list type="bullet">
     ///   <item><c>REG_SZ</c> / <c>REG_EXPAND_SZ</c> (<see cref="string"/>) — returned as-is, unless null/whitespace.</item>
     ///   <item><c>REG_DWORD</c> (<see cref="int"/>) — formatted with invariant culture.</item>
@@ -104,10 +166,8 @@ public class ConfigService
     /// </list>
     /// </summary>
     /// <remarks>
-    /// Exposed as <c>internal</c> for unit testing. The casting bug this replaced
-    /// silently dropped <c>REG_DWORD</c> values because <c>as string</c> returned
-    /// null for boxed <see cref="int"/>, breaking every CSP-deployed boolean and
-    /// integer policy that used the standard DWORD wire format.
+    /// The casting bug this replaced silently dropped <c>REG_DWORD</c> values because
+    /// <c>as string</c> returned null for boxed <see cref="int"/>.
     /// </remarks>
     internal static string? ConvertToConfigString(object? raw) => raw switch
     {
@@ -119,382 +179,313 @@ public class ConfigService
         _ => null, // REG_BINARY, REG_MULTI_SZ, etc. — not supported as config values
     };
 
-    /// <summary>
-    /// Reads a boolean value from the enterprise policy registry.
-    /// </summary>
-    private static bool? GetRegistryBool(string valueName)
+    internal static bool? ParseBool(string? value)
     {
-        var strValue = GetRegistryValue(valueName);
-        if (string.IsNullOrWhiteSpace(strValue))
+        if (string.IsNullOrWhiteSpace(value))
             return null;
-
-        if (bool.TryParse(strValue, out var boolValue))
-            return boolValue;
-
-        // Handle registry DWORD values (0 = false, 1 = true)
-        if (int.TryParse(strValue, out var intValue))
-            return intValue != 0;
-
+        if (bool.TryParse(value, out var b))
+            return b;
+        // Registry DWORD form: 0 = false, anything else = true.
+        if (int.TryParse(value, out var i))
+            return i != 0;
         return null;
     }
 
-    /// <summary>
-    /// Reads an integer value from the enterprise policy registry.
-    /// </summary>
-    private static int? GetRegistryInt(string valueName)
-    {
-        var strValue = GetRegistryValue(valueName);
-        if (string.IsNullOrWhiteSpace(strValue))
-            return null;
+    internal static int? ParseInt(string? value) =>
+        int.TryParse(value, out var i) ? i : null;
 
-        return int.TryParse(strValue, out var intValue) ? intValue : null;
+    /// <summary>The raw value from each layer above the legacy file, highest first.</summary>
+    private static IEnumerable<(SettingSource Source, string? Raw)> MachineLayers(string valueName, string? envVar)
+    {
+        yield return (SettingSource.Policy, GetPolicyValue(valueName));
+        yield return (SettingSource.MachineSettings, GetSettingsValue(valueName));
+        if (envVar is not null)
+            yield return (SettingSource.Environment, Environment.GetEnvironmentVariable(envVar));
     }
 
-    /// <summary>
-    /// Gets the Crypt Server URL from config or environment.
-    /// Priority: CLI override > Environment variable > Registry (CSP/OMA-URI) > YAML config file
-    /// </summary>
-    public static string? GetServerUrl(string? cliOverride = null)
+    internal static Resolved<string?> ResolveString(
+        string valueName, string? envVar, Func<CryptEscrowConfig, string?> fromFile,
+        string? cliValue = null, string? defaultValue = null)
     {
-        // CLI override takes precedence
-        if (!string.IsNullOrWhiteSpace(cliOverride))
-            return cliOverride;
+        if (!string.IsNullOrWhiteSpace(cliValue))
+            return new(cliValue, SettingSource.CommandLine);
 
-        // Environment variable
-        var envUrl = Environment.GetEnvironmentVariable("CRYPT_ESCROW_SERVER_URL");
-        if (!string.IsNullOrWhiteSpace(envUrl))
-            return envUrl;
+        foreach (var (source, raw) in MachineLayers(valueName, envVar))
+        {
+            if (!string.IsNullOrWhiteSpace(raw))
+                return new(raw, source);
+        }
 
-        // Enterprise registry (CSP/OMA-URI from Intune)
-        var regUrl = GetRegistryValue("ServerUrl");
-        if (!string.IsNullOrWhiteSpace(regUrl))
-            return regUrl;
+        var fileValue = LoadConfig() is { } config ? fromFile(config) : null;
+        if (!string.IsNullOrWhiteSpace(fileValue))
+            return new(fileValue, SettingSource.LegacyFile);
 
-        // Config file
-        var config = LoadConfig();
-        return config?.Server?.Url;
+        return new(defaultValue, SettingSource.Default);
     }
 
-    /// <summary>
-    /// Gets whether to skip SSL verification.
-    /// Priority: CLI override > Environment variable > Registry > YAML config
-    /// </summary>
-    public static bool GetSkipCertCheck(bool cliOverride = false)
+    internal static Resolved<bool> ResolveBool(
+        string valueName, string? envVar, Func<CryptEscrowConfig, bool?> fromFile,
+        bool defaultValue, bool? cliValue = null)
     {
-        if (cliOverride)
-            return true;
+        if (cliValue.HasValue)
+            return new(cliValue.Value, SettingSource.CommandLine);
 
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_ESCROW_SKIP_CERT_CHECK");
-        if (bool.TryParse(envValue, out var envBool))
-            return envBool;
+        foreach (var (source, raw) in MachineLayers(valueName, envVar))
+        {
+            if (ParseBool(raw) is { } value)
+                return new(value, source);
+        }
 
-        var regValue = GetRegistryBool("SkipCertCheck");
-        if (regValue.HasValue)
-            return regValue.Value;
+        if (LoadConfig() is { } config && fromFile(config) is { } fileValue)
+            return new(fileValue, SettingSource.LegacyFile);
 
-        var config = LoadConfig();
-        return config?.Server?.VerifySsl == false;
+        return new(defaultValue, SettingSource.Default);
     }
 
-    /// <summary>
-    /// Gets whether to auto-rotate keys.
-    /// Priority: Environment variable > Registry > YAML config
-    /// </summary>
-    public static bool GetAutoRotate()
+    internal static Resolved<int> ResolveInt(
+        string valueName, string? envVar, Func<CryptEscrowConfig, int?> fromFile, int defaultValue)
     {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_ESCROW_AUTO_ROTATE");
-        if (bool.TryParse(envValue, out var envBool))
-            return envBool;
+        foreach (var (source, raw) in MachineLayers(valueName, envVar))
+        {
+            if (ParseInt(raw) is { } value)
+                return new(value, source);
+        }
 
-        var regValue = GetRegistryBool("AutoRotate");
-        if (regValue.HasValue)
-            return regValue.Value;
+        if (LoadConfig() is { } config && fromFile(config) is { } fileValue)
+            return new(fileValue, SettingSource.LegacyFile);
 
-        var config = LoadConfig();
-        return config?.Escrow?.AutoRotate ?? true;
+        return new(defaultValue, SettingSource.Default);
     }
 
-    /// <summary>
-    /// Gets whether to cleanup old protectors.
-    /// Priority: Environment variable > Registry > YAML config
-    /// </summary>
-    public static bool GetCleanupOldProtectors()
-    {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_ESCROW_CLEANUP_OLD_PROTECTORS");
-        if (bool.TryParse(envValue, out var envBool))
-            return envBool;
+    // ----------------------------------------------------------------- settings
 
-        var regValue = GetRegistryBool("CleanupOldProtectors");
-        if (regValue.HasValue)
-            return regValue.Value;
+    /// <summary>The Crypt Server URL.</summary>
+    public static Resolved<string?> ResolveServerUrl(string? cliOverride = null) =>
+        ResolveString("ServerUrl", "CRYPT_ESCROW_SERVER_URL", c => c.Server?.Url, cliOverride);
 
-        var config = LoadConfig();
-        return config?.Escrow?.CleanupOldProtectors ?? true;
-    }
+    public static string? GetServerUrl(string? cliOverride = null) => ResolveServerUrl(cliOverride).Value;
 
     /// <summary>
-    /// Gets the key escrow interval in hours (inspired by Mac Crypt).
-    /// Priority: Environment variable > Registry > YAML config
+    /// Whether to skip TLS verification. <c>--skip-cert-check</c> can only turn
+    /// verification off for one run; without it the configured value applies.
     /// </summary>
-    public static int GetKeyEscrowIntervalHours()
-    {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_KEY_ESCROW_INTERVAL");
-        if (int.TryParse(envValue, out var hours))
-            return hours;
+    public static Resolved<bool> ResolveSkipCertCheck(bool cliOverride = false) =>
+        ResolveBool("SkipCertCheck", "CRYPT_ESCROW_SKIP_CERT_CHECK",
+            c => c.Server is { } s ? !s.VerifySsl : null,
+            defaultValue: false, cliValue: cliOverride ? true : null);
 
-        var regValue = GetRegistryInt("KeyEscrowIntervalHours");
-        if (regValue.HasValue)
-            return regValue.Value;
+    public static bool GetSkipCertCheck(bool cliOverride = false) => ResolveSkipCertCheck(cliOverride).Value;
 
-        var config = LoadConfig();
-        return config?.Escrow?.KeyEscrowIntervalHours ?? 1;
-    }
+    public static Resolved<bool> ResolveAutoRotate() =>
+        ResolveBool("AutoRotate", "CRYPT_ESCROW_AUTO_ROTATE", c => c.Escrow?.AutoRotate, defaultValue: true);
+
+    public static bool GetAutoRotate() => ResolveAutoRotate().Value;
+
+    public static Resolved<bool> ResolveCleanupOldProtectors() =>
+        ResolveBool("CleanupOldProtectors", "CRYPT_ESCROW_CLEANUP_OLD_PROTECTORS",
+            c => c.Escrow?.CleanupOldProtectors, defaultValue: true);
+
+    public static bool GetCleanupOldProtectors() => ResolveCleanupOldProtectors().Value;
+
+    /// <summary>The key escrow interval in hours (inspired by Mac Crypt).</summary>
+    public static Resolved<int> ResolveKeyEscrowIntervalHours() =>
+        ResolveInt("KeyEscrowIntervalHours", "CRYPT_KEY_ESCROW_INTERVAL",
+            c => c.Escrow?.KeyEscrowIntervalHours, defaultValue: 1);
+
+    public static int GetKeyEscrowIntervalHours() => ResolveKeyEscrowIntervalHours().Value;
+
+    /// <summary>Whether to validate the key locally (inspired by Mac Crypt).</summary>
+    public static Resolved<bool> ResolveValidateKey() =>
+        ResolveBool("ValidateKey", "CRYPT_VALIDATE_KEY", c => c.Escrow?.ValidateKey, defaultValue: true);
+
+    public static bool GetValidateKey() => ResolveValidateKey().Value;
+
+    /// <summary>Users to skip from escrow enforcement, comma-separated (inspired by Mac Crypt).</summary>
+    public static Resolved<string?> ResolveSkipUsers() =>
+        ResolveString("SkipUsers", "CRYPT_SKIP_USERS",
+            c => c.Escrow?.SkipUsers is { Length: > 0 } users ? string.Join(",", users) : null);
+
+    public static string[]? GetSkipUsers() =>
+        ResolveSkipUsers().Value?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>Command to run after error conditions (inspired by Mac Crypt).</summary>
+    public static Resolved<string?> ResolvePostRunCommand() =>
+        ResolveString("PostRunCommand", "CRYPT_POST_RUN_COMMAND", c => c.Escrow?.PostRunCommand);
+
+    public static string? GetPostRunCommand() => ResolvePostRunCommand().Value;
+
+    /// <summary>The API key for server authentication.</summary>
+    public static Resolved<string?> ResolveApiKey() =>
+        ResolveString("ApiKey", "CRYPT_API_KEY", c => c.Server?.Auth?.ApiKey);
+
+    public static string? GetApiKey() => ResolveApiKey().Value;
+
+    public static Resolved<string?> ResolveApiKeyHeader() =>
+        ResolveString("ApiKeyHeader", "CRYPT_API_KEY_HEADER", c => c.Server?.Auth?.ApiKeyHeader,
+            defaultValue: "X-API-Key");
+
+    public static string GetApiKeyHeader() => ResolveApiKeyHeader().Value!;
+
+    public static Resolved<bool> ResolveUseMtls() =>
+        ResolveBool("UseMtls", "CRYPT_USE_MTLS", c => c.Server?.Auth?.UseMtls, defaultValue: false);
+
+    public static bool GetUseMtls() => ResolveUseMtls().Value;
+
+    public static Resolved<string?> ResolveCertificateSubject() =>
+        ResolveString("CertificateSubject", "CRYPT_CERT_SUBJECT", c => c.Server?.Auth?.CertificateSubject);
+
+    public static string? GetCertificateSubject() => ResolveCertificateSubject().Value;
+
+    public static Resolved<string?> ResolveCertificateThumbprint() =>
+        ResolveString("CertificateThumbprint", "CRYPT_CERT_THUMBPRINT", c => c.Server?.Auth?.CertificateThumbprint);
+
+    public static string? GetCertificateThumbprint() => ResolveCertificateThumbprint().Value;
+
+    public static Resolved<string?> ResolveCertificateStoreLocation() =>
+        ResolveString("CertificateStoreLocation", "CRYPT_CERT_STORE_LOCATION",
+            c => c.Server?.Auth?.CertificateStoreLocation, defaultValue: "LocalMachine");
+
+    public static Resolved<string?> ResolveCertificateStoreName() =>
+        ResolveString("CertificateStoreName", "CRYPT_CERT_STORE_NAME",
+            c => c.Server?.Auth?.CertificateStoreName, defaultValue: "My");
+
+    /// <summary>Path to a client certificate PEM file for mTLS.</summary>
+    public static Resolved<string?> ResolveClientCertPath() =>
+        ResolveString("ClientCertPath", "CRYPT_CLIENT_CERT_PATH", c => c.Server?.Auth?.ClientCertPath);
+
+    public static string? GetClientCertPath() => ResolveClientCertPath().Value;
+
+    /// <summary>Path to the client private key PEM file for mTLS (paired with ClientCertPath).</summary>
+    public static Resolved<string?> ResolveClientKeyPath() =>
+        ResolveString("ClientKeyPath", "CRYPT_CLIENT_KEY_PATH", c => c.Server?.Auth?.ClientKeyPath);
+
+    public static string? GetClientKeyPath() => ResolveClientKeyPath().Value;
 
     /// <summary>
-    /// Gets whether to validate the key locally (inspired by Mac Crypt).
-    /// Priority: Environment variable > Registry > YAML config
+    /// Path to a client certificate PFX file for mTLS. Preferred over PEM because the
+    /// private key is encrypted at rest and the passphrase is pulled from Credential Manager.
     /// </summary>
-    public static bool GetValidateKey()
+    public static Resolved<string?> ResolvePfxPath() =>
+        ResolveString("PfxPath", "CRYPT_PFX_PATH", c => c.Server?.Auth?.PfxPath);
+
+    public static string? GetPfxPath() => ResolvePfxPath().Value;
+
+    /// <summary>Name of the Windows Credential Manager entry holding the PFX passphrase.</summary>
+    public static Resolved<string?> ResolvePfxPasswordCredential() =>
+        ResolveString("PfxPasswordCredential", "CRYPT_PFX_PASSWORD_CRED", c => c.Server?.Auth?.PfxPasswordCredential);
+
+    public static string? GetPfxPasswordCredential() => ResolvePfxPasswordCredential().Value;
+
+    public static Resolved<string?> ResolveLogLevel() =>
+        ResolveString("LogLevel", "CRYPT_LOG_LEVEL", c => c.Logging?.Level, defaultValue: "INFO");
+
+    public static Resolved<string?> ResolveLogFilePath() =>
+        ResolveString("LogFilePath", "CRYPT_LOG_FILE_PATH", c => c.Logging?.FilePath);
+
+    public static Resolved<int> ResolveLogRetainedDays() =>
+        ResolveInt("LogRetainedDays", "CRYPT_LOG_RETAINED_DAYS", c => c.Logging?.RetainedDays, defaultValue: 30);
+
+    /// <summary>The effective logging settings, from every layer.</summary>
+    public static LoggingConfig GetLoggingConfig() => new()
     {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_VALIDATE_KEY");
-        if (bool.TryParse(envValue, out var validate))
-            return validate;
-
-        var regValue = GetRegistryBool("ValidateKey");
-        if (regValue.HasValue)
-            return regValue.Value;
-
-        var config = LoadConfig();
-        return config?.Escrow?.ValidateKey ?? true;
-    }
-
-    /// <summary>
-    /// Gets users to skip from escrow enforcement (inspired by Mac Crypt).
-    /// Priority: Environment variable > Registry > YAML config
-    /// </summary>
-    public static string[]? GetSkipUsers()
-    {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_SKIP_USERS");
-        if (!string.IsNullOrWhiteSpace(envValue))
-            return envValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        var regValue = GetRegistryValue("SkipUsers");
-        if (!string.IsNullOrWhiteSpace(regValue))
-            return regValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        var config = LoadConfig();
-        return config?.Escrow?.SkipUsers;
-    }
-
-    /// <summary>
-    /// Gets command to run after error conditions (inspired by Mac Crypt).
-    /// Priority: Environment variable > Registry > YAML config
-    /// </summary>
-    public static string? GetPostRunCommand()
-    {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_POST_RUN_COMMAND");
-        if (!string.IsNullOrWhiteSpace(envValue))
-            return envValue;
-
-        var regValue = GetRegistryValue("PostRunCommand");
-        if (!string.IsNullOrWhiteSpace(regValue))
-            return regValue;
-
-        var config = LoadConfig();
-        return config?.Escrow?.PostRunCommand;
-    }
-
-    /// <summary>
-    /// Gets the API key for server authentication.
-    /// Priority: Environment variable > Registry > YAML config
-    /// </summary>
-    public static string? GetApiKey()
-    {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_API_KEY");
-        if (!string.IsNullOrWhiteSpace(envValue))
-            return envValue;
-
-        var regValue = GetRegistryValue("ApiKey");
-        if (!string.IsNullOrWhiteSpace(regValue))
-            return regValue;
-
-        var config = LoadConfig();
-        return config?.Server?.Auth?.ApiKey;
-    }
-
-    /// <summary>
-    /// Gets the API key header name.
-    /// Priority: Environment variable > Registry > YAML config
-    /// </summary>
-    public static string GetApiKeyHeader()
-    {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_API_KEY_HEADER");
-        if (!string.IsNullOrWhiteSpace(envValue))
-            return envValue;
-
-        var regValue = GetRegistryValue("ApiKeyHeader");
-        if (!string.IsNullOrWhiteSpace(regValue))
-            return regValue;
-
-        var config = LoadConfig();
-        return config?.Server?.Auth?.ApiKeyHeader ?? "X-API-Key";
-    }
-
-    /// <summary>
-    /// Gets whether to use mTLS authentication.
-    /// Priority: Environment variable > Registry > YAML config
-    /// </summary>
-    public static bool GetUseMtls()
-    {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_USE_MTLS");
-        if (bool.TryParse(envValue, out var envBool))
-            return envBool;
-
-        var regValue = GetRegistryBool("UseMtls");
-        if (regValue.HasValue)
-            return regValue.Value;
-
-        var config = LoadConfig();
-        return config?.Server?.Auth?.UseMtls ?? false;
-    }
-
-    /// <summary>
-    /// Gets the certificate subject name for mTLS.
-    /// Priority: Environment variable > Registry > YAML config
-    /// </summary>
-    public static string? GetCertificateSubject()
-    {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_CERT_SUBJECT");
-        if (!string.IsNullOrWhiteSpace(envValue))
-            return envValue;
-
-        var regValue = GetRegistryValue("CertificateSubject");
-        if (!string.IsNullOrWhiteSpace(regValue))
-            return regValue;
-
-        var config = LoadConfig();
-        return config?.Server?.Auth?.CertificateSubject;
-    }
-
-    /// <summary>
-    /// Gets the certificate thumbprint for mTLS.
-    /// Priority: Environment variable > Registry > YAML config
-    /// </summary>
-    public static string? GetCertificateThumbprint()
-    {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_CERT_THUMBPRINT");
-        if (!string.IsNullOrWhiteSpace(envValue))
-            return envValue;
-
-        var regValue = GetRegistryValue("CertificateThumbprint");
-        if (!string.IsNullOrWhiteSpace(regValue))
-            return regValue;
-
-        var config = LoadConfig();
-        return config?.Server?.Auth?.CertificateThumbprint;
-    }
-
-    /// <summary>
-    /// Gets the path to a client certificate PEM file for mTLS.
-    /// Priority: Environment variable > Registry > YAML config
-    /// </summary>
-    public static string? GetClientCertPath()
-    {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_CLIENT_CERT_PATH");
-        if (!string.IsNullOrWhiteSpace(envValue))
-            return envValue;
-
-        var regValue = GetRegistryValue("ClientCertPath");
-        if (!string.IsNullOrWhiteSpace(regValue))
-            return regValue;
-
-        var config = LoadConfig();
-        return config?.Server?.Auth?.ClientCertPath;
-    }
-
-    /// <summary>
-    /// Gets the path to the client private key PEM file for mTLS (paired with ClientCertPath).
-    /// Priority: Environment variable > Registry > YAML config
-    /// </summary>
-    public static string? GetClientKeyPath()
-    {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_CLIENT_KEY_PATH");
-        if (!string.IsNullOrWhiteSpace(envValue))
-            return envValue;
-
-        var regValue = GetRegistryValue("ClientKeyPath");
-        if (!string.IsNullOrWhiteSpace(regValue))
-            return regValue;
-
-        var config = LoadConfig();
-        return config?.Server?.Auth?.ClientKeyPath;
-    }
-
-    /// <summary>
-    /// Gets the path to a client certificate PFX file for mTLS. Preferred over PEM because
-    /// the private key is encrypted at rest and the passphrase is pulled from Credential Manager.
-    /// Priority: Environment variable > Registry > YAML config
-    /// </summary>
-    public static string? GetPfxPath()
-    {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_PFX_PATH");
-        if (!string.IsNullOrWhiteSpace(envValue))
-            return envValue;
-
-        var regValue = GetRegistryValue("PfxPath");
-        if (!string.IsNullOrWhiteSpace(regValue))
-            return regValue;
-
-        var config = LoadConfig();
-        return config?.Server?.Auth?.PfxPath;
-    }
-
-    /// <summary>
-    /// Gets the name of the Windows Credential Manager entry holding the PFX passphrase.
-    /// Priority: Environment variable > Registry > YAML config
-    /// </summary>
-    public static string? GetPfxPasswordCredential()
-    {
-        var envValue = Environment.GetEnvironmentVariable("CRYPT_PFX_PASSWORD_CRED");
-        if (!string.IsNullOrWhiteSpace(envValue))
-            return envValue;
-
-        var regValue = GetRegistryValue("PfxPasswordCredential");
-        if (!string.IsNullOrWhiteSpace(regValue))
-            return regValue;
-
-        var config = LoadConfig();
-        return config?.Server?.Auth?.PfxPasswordCredential;
-    }
+        Level = ResolveLogLevel().Value!,
+        FilePath = ResolveLogFilePath().Value,
+        RetainedDays = ResolveLogRetainedDays().Value
+    };
 
     /// <summary>
     /// Gets the full authentication configuration.
     /// </summary>
-    public static AuthConfig GetAuthConfig()
+    public static AuthConfig GetAuthConfig() => new()
     {
-        var config = LoadConfig();
-        return new AuthConfig
+        ApiKey = GetApiKey(),
+        ApiKeyHeader = GetApiKeyHeader(),
+        UseMtls = GetUseMtls(),
+        CertificateSubject = GetCertificateSubject(),
+        CertificateThumbprint = GetCertificateThumbprint(),
+        CertificateStoreLocation = ResolveCertificateStoreLocation().Value!,
+        CertificateStoreName = ResolveCertificateStoreName().Value!,
+        ClientCertPath = GetClientCertPath(),
+        ClientKeyPath = GetClientKeyPath(),
+        PfxPath = GetPfxPath(),
+        PfxPasswordCredential = GetPfxPasswordCredential()
+    };
+
+    /// <summary>
+    /// Every setting with its effective value and the layer it came from, for
+    /// <c>config show</c>. The API key is masked.
+    /// </summary>
+    public static IReadOnlyList<(string Name, string Value, SettingSource Source)> Describe()
+    {
+        static (string, string, SettingSource) S(string name, Resolved<string?> r) =>
+            (name, r.Value ?? "(not set)", r.Source);
+        static (string, string, SettingSource) B(string name, Resolved<bool> r) =>
+            (name, r.Value ? "true" : "false", r.Source);
+        static (string, string, SettingSource) I(string name, Resolved<int> r) =>
+            (name, r.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), r.Source);
+
+        var apiKey = ResolveApiKey();
+        return
+        [
+            S("ServerUrl", ResolveServerUrl()),
+            B("SkipCertCheck", ResolveSkipCertCheck()),
+            B("AutoRotate", ResolveAutoRotate()),
+            B("CleanupOldProtectors", ResolveCleanupOldProtectors()),
+            I("KeyEscrowIntervalHours", ResolveKeyEscrowIntervalHours()),
+            B("ValidateKey", ResolveValidateKey()),
+            S("SkipUsers", ResolveSkipUsers()),
+            S("PostRunCommand", ResolvePostRunCommand()),
+            ("ApiKey", apiKey.Value is null ? "(not set)" : "(set)", apiKey.Source),
+            S("ApiKeyHeader", ResolveApiKeyHeader()),
+            B("UseMtls", ResolveUseMtls()),
+            S("CertificateSubject", ResolveCertificateSubject()),
+            S("CertificateThumbprint", ResolveCertificateThumbprint()),
+            S("CertificateStoreLocation", ResolveCertificateStoreLocation()),
+            S("CertificateStoreName", ResolveCertificateStoreName()),
+            S("ClientCertPath", ResolveClientCertPath()),
+            S("ClientKeyPath", ResolveClientKeyPath()),
+            S("PfxPath", ResolvePfxPath()),
+            S("PfxPasswordCredential", ResolvePfxPasswordCredential()),
+            S("LogLevel", ResolveLogLevel()),
+            S("LogFilePath", ResolveLogFilePath()),
+            I("LogRetainedDays", ResolveLogRetainedDays()),
+        ];
+    }
+
+    // -------------------------------------------------------------- legacy file
+
+    /// <summary>
+    /// Null when <paramref name="path"/> may be trusted. Otherwise records why in
+    /// <see cref="IgnoredFileNotes"/>, logs it the first time, and returns it.
+    /// </summary>
+    private static string? CheckTrusted(string path, string what, bool log = true)
+    {
+        var reason = FileTrustOverride is { } check ? check(path) : TrustedFile.WhyUntrusted(path);
+        if (reason is null)
+            return null;
+
+        var note = $"Ignoring {what}: {reason}";
+        bool first;
+        lock (NotesLock)
         {
-            ApiKey = GetApiKey(),
-            ApiKeyHeader = GetApiKeyHeader(),
-            UseMtls = GetUseMtls(),
-            CertificateSubject = GetCertificateSubject(),
-            CertificateThumbprint = GetCertificateThumbprint(),
-            CertificateStoreLocation = config?.Server?.Auth?.CertificateStoreLocation ?? "LocalMachine",
-            CertificateStoreName = config?.Server?.Auth?.CertificateStoreName ?? "My",
-            ClientCertPath = GetClientCertPath(),
-            ClientKeyPath = GetClientKeyPath(),
-            PfxPath = GetPfxPath(),
-            PfxPasswordCredential = GetPfxPasswordCredential()
-        };
+            first = !IgnoredFileNotesList.Contains(note);
+            if (first) IgnoredFileNotesList.Add(note);
+        }
+        if (first && log && !DeferIgnoredFileWarnings)
+            Log.Warning("{Note}", note);
+        return reason;
     }
 
     /// <summary>
-    /// Loads the configuration from YAML file.
+    /// Loads the legacy YAML file. Returns null when it is absent, unreadable, or could
+    /// have been written by an account other than SYSTEM and Administrators.
     /// </summary>
     public static CryptEscrowConfig? LoadConfig()
     {
         if (!File.Exists(ConfigPath))
+            return null;
+
+        if (CheckTrusted(ConfigPath, "config file") is not null)
             return null;
 
         try
@@ -509,60 +500,105 @@ public class ConfigService
         }
     }
 
-    /// <summary>
-    /// Saves configuration to YAML file.
-    /// </summary>
-    public static void SaveConfig(CryptEscrowConfig config)
-    {
-        Directory.CreateDirectory(ConfigDir);
-        var yaml = YamlSerializer.Serialize(config);
-        File.WriteAllText(ConfigPath, yaml);
-        Log.Information("Configuration saved to {Path}", ConfigPath);
-    }
+    // --------------------------------------------------------- machine settings
 
     /// <summary>
-    /// Sets a configuration value by key path (e.g., "server.url").
+    /// <c>config set</c> keys and the settings value each one writes. The value names
+    /// themselves are accepted as keys too.
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, string> SettableKeys =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["server.url"] = "ServerUrl",
+            ["server.skip_cert_check"] = "SkipCertCheck",
+            ["escrow.auto_rotate"] = "AutoRotate",
+            ["escrow.cleanup_old_protectors"] = "CleanupOldProtectors",
+            ["escrow.key_escrow_interval_hours"] = "KeyEscrowIntervalHours",
+            ["escrow.validate_key"] = "ValidateKey",
+            ["escrow.skip_users"] = "SkipUsers",
+            ["escrow.post_run_command"] = "PostRunCommand",
+            ["server.auth.api_key"] = "ApiKey",
+            ["server.auth.api_key_header"] = "ApiKeyHeader",
+            ["server.auth.use_mtls"] = "UseMtls",
+            ["server.auth.certificate_subject"] = "CertificateSubject",
+            ["server.auth.certificate_thumbprint"] = "CertificateThumbprint",
+            ["server.auth.certificate_store_location"] = "CertificateStoreLocation",
+            ["server.auth.certificate_store_name"] = "CertificateStoreName",
+            ["server.auth.client_cert_path"] = "ClientCertPath",
+            ["server.auth.client_key_path"] = "ClientKeyPath",
+            ["server.auth.pfx_path"] = "PfxPath",
+            ["server.auth.pfx_password_credential"] = "PfxPasswordCredential",
+            ["logging.level"] = "LogLevel",
+            ["logging.file_path"] = "LogFilePath",
+            ["logging.retained_days"] = "LogRetainedDays",
+        };
+
+    private static readonly HashSet<string> BoolSettings = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "SkipCertCheck", "AutoRotate", "CleanupOldProtectors", "ValidateKey", "UseMtls"
+    };
+
+    private static readonly HashSet<string> IntSettings = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "KeyEscrowIntervalHours", "LogRetainedDays"
+    };
+
+    /// <summary>
+    /// Writes one setting to <c>HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings</c>, which
+    /// needs an elevated process. <c>server.verify_ssl</c> is still accepted and stored
+    /// as the inverse <c>SkipCertCheck</c>.
     /// </summary>
     public static void SetValue(string key, string value)
     {
-        var config = LoadConfig() ?? new CryptEscrowConfig();
-
-        var parts = key.ToLower().Split('.');
-        switch (parts)
+        string valueName;
+        if (string.Equals(key, "server.verify_ssl", StringComparison.OrdinalIgnoreCase))
         {
-            case ["server", "url"]:
-                config.Server ??= new ServerConfig();
-                config.Server.Url = value;
-                break;
-            case ["server", "verify_ssl"]:
-                config.Server ??= new ServerConfig();
-                config.Server.VerifySsl = bool.Parse(value);
-                break;
-            case ["server", "timeout_seconds"]:
-                config.Server ??= new ServerConfig();
-                config.Server.TimeoutSeconds = int.Parse(value);
-                break;
-            case ["escrow", "auto_rotate"]:
-                config.Escrow ??= new EscrowConfig();
-                config.Escrow.AutoRotate = bool.Parse(value);
-                break;
-            case ["escrow", "cleanup_old_protectors"]:
-                config.Escrow ??= new EscrowConfig();
-                config.Escrow.CleanupOldProtectors = bool.Parse(value);
-                break;
-            default:
-                throw new ArgumentException($"Unknown configuration key: {key}");
+            valueName = "SkipCertCheck";
+            value = (!(ParseBool(value) ?? throw new ArgumentException($"Not a boolean: {value}"))).ToString();
+        }
+        else if (SettableKeys.TryGetValue(key, out var mapped))
+        {
+            valueName = mapped;
+        }
+        else if (SettableKeys.Values.FirstOrDefault(v => string.Equals(v, key, StringComparison.OrdinalIgnoreCase)) is { } name)
+        {
+            valueName = name;
+        }
+        else
+        {
+            throw new ArgumentException($"Unknown configuration key: {key}");
         }
 
-        SaveConfig(config);
+        if (BoolSettings.Contains(valueName))
+            value = (ParseBool(value) ?? throw new ArgumentException($"Not a boolean: {value}")).ToString();
+        value = value.ToLowerInvariant() is "true" or "false" ? value.ToLowerInvariant() : value;
+        if (IntSettings.Contains(valueName) && ParseInt(value) is null)
+            throw new ArgumentException($"Not a whole number: {value}");
+
+        if (SettingsWriterOverride is { } writer)
+        {
+            writer(valueName, value);
+        }
+        else
+        {
+            using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            using var settings = baseKey.CreateSubKey(SettingsKeyPath, writable: true);
+            settings.SetValue(valueName, value, RegistryValueKind.String);
+            Log.Information("Set {ValueName} in HKLM\\{Path}", valueName, SettingsKeyPath);
+        }
+
+        if (GetPolicyValue(valueName) is not null)
+            Log.Warning("{ValueName} is also set by policy, and policy takes precedence", valueName);
     }
+
+    // -------------------------------------------------------------- state files
 
     /// <summary>
     /// Gets the last escrowed protector ID from marker file.
     /// </summary>
     public static string? GetLastEscrowedProtectorId()
     {
-        if (!File.Exists(MarkerPath))
+        if (!File.Exists(MarkerPath) || CheckTrusted(MarkerPath, "escrow marker") is not null)
             return null;
 
         try
@@ -580,8 +616,7 @@ public class ConfigService
     /// </summary>
     public static void SaveEscrowedProtectorId(string protectorId)
     {
-        Directory.CreateDirectory(ConfigDir);
-        File.WriteAllText(MarkerPath, protectorId);
+        WriteStateFile(MarkerPath, protectorId);
         SaveLastEscrowTimestamp();
     }
 
@@ -590,9 +625,22 @@ public class ConfigService
     /// </summary>
     public static void SaveLastEscrowTimestamp()
     {
+        WriteStateFile(TimestampPath, DateTimeOffset.UtcNow.ToString("o"));
+    }
+
+    /// <summary>
+    /// Writes a state file, first removing one that is not trusted: writing into it
+    /// would keep its owner and permissions, so it would never be trusted afterwards.
+    /// </summary>
+    private static void WriteStateFile(string path, string content)
+    {
         Directory.CreateDirectory(ConfigDir);
-        var timestampPath = Path.Combine(ConfigDir, "last_escrow.txt");
-        File.WriteAllText(timestampPath, DateTimeOffset.UtcNow.ToString("o"));
+        if (File.Exists(path) && CheckTrusted(path, "state file", log: false) is { } reason)
+        {
+            File.Delete(path);
+            Log.Warning("Replaced {Path}: {Reason}", path, reason);
+        }
+        File.WriteAllText(path, content);
     }
 
     /// <summary>
@@ -600,13 +648,12 @@ public class ConfigService
     /// </summary>
     public static DateTimeOffset? GetLastEscrowTimestamp()
     {
-        var timestampPath = Path.Combine(ConfigDir, "last_escrow.txt");
-        if (!File.Exists(timestampPath))
+        if (!File.Exists(TimestampPath) || CheckTrusted(TimestampPath, "last escrow timestamp") is not null)
             return null;
 
         try
         {
-            var content = File.ReadAllText(timestampPath);
+            var content = File.ReadAllText(TimestampPath);
             return DateTimeOffset.Parse(content);
         }
         catch (Exception ex)

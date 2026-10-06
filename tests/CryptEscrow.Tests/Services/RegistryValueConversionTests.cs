@@ -7,7 +7,7 @@ using Xunit;
 namespace CryptEscrow.Tests.Services;
 
 /// <summary>
-/// Regression coverage for issue #4: <see cref="ConfigService.GetRegistryValue"/>
+/// Regression coverage for issue #4: <see cref="ConfigService.GetPolicyValue"/>
 /// was reading raw values with <c>as string</c>, silently dropping <c>REG_DWORD</c>
 /// and <c>REG_QWORD</c> policy values. This broke every CSP-deployed boolean and
 /// integer policy because Intune emits those as DWORDs.

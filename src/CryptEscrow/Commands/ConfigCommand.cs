@@ -8,44 +8,38 @@ public static class ConfigCommand
     public static void Show()
     {
         var configPath = ConfigService.GetConfigPath();
-        
+
         Console.WriteLine("Configuration");
         Console.WriteLine("=============");
         Console.WriteLine();
-        Console.WriteLine($"Config file: {configPath}");
-        Console.WriteLine($"File exists: {File.Exists(configPath)}");
+        Console.WriteLine("Precedence: command line > policy > machine settings > environment > config file > default");
+        Console.WriteLine($@"Policy:           HKLM\{ConfigService.PolicyKeyPath}");
+        Console.WriteLine($@"                  HKLM\{ConfigService.PolicyKeyPathMdm}");
+        Console.WriteLine($@"Machine settings: HKLM\{ConfigService.SettingsKeyPath}");
+        Console.WriteLine($"Config file:      {configPath} ({(File.Exists(configPath) ? "present" : "absent")})");
         Console.WriteLine();
 
-        // Show effective configuration
+        // A value set by policy is managed: config set cannot change it.
         Console.WriteLine("Effective Configuration:");
         Console.WriteLine("------------------------");
-        
-        var serverUrl = ConfigService.GetServerUrl();
-        Console.WriteLine($"  server.url: {serverUrl ?? "(not set)"}");
-        Console.WriteLine($"  server.skip_cert_check: {ConfigService.GetSkipCertCheck()}");
-        Console.WriteLine($"  escrow.auto_rotate: {ConfigService.GetAutoRotate()}");
-        Console.WriteLine($"  escrow.cleanup_old_protectors: {ConfigService.GetCleanupOldProtectors()}");
-        Console.WriteLine();
-
-        // Show environment variable overrides
-        Console.WriteLine("Environment Variables:");
-        Console.WriteLine("----------------------");
-        
-        var envVars = new[]
+        foreach (var (name, value, source) in ConfigService.Describe())
         {
-            "CRYPT_ESCROW_SERVER_URL",
-            "CRYPT_ESCROW_SKIP_CERT_CHECK",
-            "CRYPT_ESCROW_AUTO_ROTATE",
-            "CRYPT_ESCROW_CLEANUP_OLD_PROTECTORS"
-        };
-
-        foreach (var env in envVars)
-        {
-            var value = Environment.GetEnvironmentVariable(env);
-            if (!string.IsNullOrWhiteSpace(value))
+            var label = source switch
             {
-                Console.WriteLine($"  {env}={value}");
-            }
+                SettingSource.Policy => "policy (managed)",
+                SettingSource.MachineSettings => "machine settings",
+                SettingSource.Environment => "environment",
+                SettingSource.LegacyFile => "config file",
+                SettingSource.CommandLine => "command line",
+                _ => "default"
+            };
+            Console.WriteLine($"  {name,-24} {value,-40} [{label}]");
+        }
+
+        foreach (var note in ConfigService.IgnoredFileNotes)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"  {note}");
         }
 
         // Show last escrowed protector
@@ -63,6 +57,11 @@ public static class ConfigCommand
         {
             ConfigService.SetValue(key, value);
             Console.WriteLine($"Set {key} = {value}");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            Log.Error("Administrator privileges required to change machine settings");
+            Console.WriteLine("Error: run elevated to change machine settings");
         }
         catch (Exception ex)
         {

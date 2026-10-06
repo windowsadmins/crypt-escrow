@@ -142,15 +142,22 @@ Options:
 
 ## Configuration
 
-Configuration is loaded from (in order of precedence):
-1. Command-line options
-2. Environment variables
-3. Registry (CSP/OMA-URI from Intune)
-4. YAML configuration file
+Every setting is resolved through the same chain, highest first:
+1. Command-line options for that run (`--server`, `--skip-cert-check`)
+2. Policy: `HKLM\SOFTWARE\Policies\Crypt\ManagedEncryption`, then the Intune PolicyManager path `HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\Crypt~Policy~ManagedEncryption`
+3. Machine settings: `HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings` (64-bit view), then the matching environment variable
+4. The legacy YAML file `C:\ProgramData\ManagedEncryption\config.yaml`
+5. Built-in defaults
+
+Environment variables never override policy or machine settings. Every setting can be set by policy; the value names are listed in [docs/INTUNE-CSP-CONFIGURATION.md](docs/INTUNE-CSP-CONFIGURATION.md).
+
+`checkin config show` prints each effective value and the layer it came from. `checkin config set <key> <value>`, run elevated, writes the machine settings key; a value set by policy still wins.
 
 ### Configuration File
 
 Location: `C:\ProgramData\ManagedEncryption\config.yaml`
+
+The file is a legacy source, read below policy and machine settings. The installer restricts `C:\ProgramData\ManagedEncryption` to SYSTEM and Administrators (full control) and Users (read), with inheritance from ProgramData turned off. The tool ignores `config.yaml`, `escrow.marker` and `last_escrow.txt` when they, or the folder, could be written by any other account, and logs why.
 
 ```yaml
 server:
@@ -184,6 +191,8 @@ logging:
 
 ### Environment Variables
 
+Environment variables sit in the machine settings layer, below the settings key and above the YAML file.
+
 | Variable | Description |
 |----------|-------------|
 | `CRYPT_ESCROW_SERVER_URL` | Crypt Server URL |
@@ -203,6 +212,11 @@ logging:
 | `CRYPT_PFX_PASSWORD_CRED` | Name of Windows Credential Manager entry holding the PFX passphrase |
 | `CRYPT_CLIENT_CERT_PATH` | Path to client certificate PEM file for mTLS (least preferred file-based option) |
 | `CRYPT_CLIENT_KEY_PATH` | Path to client private key PEM file (paired with above) |
+| `CRYPT_CERT_STORE_LOCATION` | Certificate store location: LocalMachine or CurrentUser |
+| `CRYPT_CERT_STORE_NAME` | Certificate store name (default: My) |
+| `CRYPT_LOG_LEVEL` | Log level: DEBUG, INFO, WARN, ERROR |
+| `CRYPT_LOG_FILE_PATH` | Log file path |
+| `CRYPT_LOG_RETAINED_DAYS` | Days of logs to keep |
 
 ### Authentication
 
