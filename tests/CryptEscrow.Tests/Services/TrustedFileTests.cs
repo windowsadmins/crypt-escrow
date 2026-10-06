@@ -11,8 +11,11 @@ namespace CryptEscrow.Tests.Services;
 /// Most cases build the security descriptor in memory, so they run without admin; one
 /// checks a real file the test user created.
 /// </summary>
+[Collection(GlobalStateCollection.Name)]
 public class TrustedFileTests
 {
+    private static readonly SecurityIdentifier EntraAdmin = new("S-1-12-1-1111111111-2222222222-3333333333-4444444444");
+
     private static readonly SecurityIdentifier System = new(WellKnownSidType.LocalSystemSid, null);
     private static readonly SecurityIdentifier Administrators = new(WellKnownSidType.BuiltinAdministratorsSid, null);
     private static readonly SecurityIdentifier Users = new(WellKnownSidType.BuiltinUsersSid, null);
@@ -144,6 +147,83 @@ public class TrustedFileTests
             All, PropagationFlags.InheritOnly, AccessControlType.Allow));
 
         TrustedFile.Evaluate("folder", security).Should().BeNull();
+    }
+
+    [Fact]
+    public void IndividualOwnerInALockedFolderIsTrusted()
+    {
+        // Only an administrator can create a file in a locked folder, so the owner is not
+        // held against it, even one the tool cannot resolve.
+        TrustedFile.Evaluate("config.yaml", LockedFile(owner: EntraAdmin), ownerVouchedByParent: true)
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void IndividualOwnerDoesNotExcuseAWriteGrant()
+    {
+        var security = LockedFile(owner: EntraAdmin);
+        security.AddAccessRule(new FileSystemAccessRule(Users, FileSystemRights.Modify, AccessControlType.Allow));
+
+        TrustedFile.Evaluate("config.yaml", security, ownerVouchedByParent: true).Should().Contain(Users.Value);
+    }
+
+    [Theory]
+    [InlineData(FileSystemRights.Delete)]
+    [InlineData(FileSystemRights.ChangePermissions)]
+    [InlineData(FileSystemRights.TakeOwnership)]
+    public void DeleteWriteDacAndWriteOwnerGrantsAreRefused(FileSystemRights rights)
+    {
+        var security = LockedFile(owner: EntraAdmin);
+        security.AddAccessRule(new FileSystemAccessRule(AuthenticatedUsers, rights, AccessControlType.Allow));
+
+        TrustedFile.Evaluate("config.yaml", security, ownerVouchedByParent: true).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void FolderOwnedByAKnownAdministratorIsTrusted()
+    {
+        var previous = AdminMembership.Override;
+        AdminMembership.Override = sid => sid == EntraAdmin;
+        try
+        {
+            TrustedFile.Evaluate("folder", LockedFolder(owner: EntraAdmin)).Should().BeNull();
+        }
+        finally
+        {
+            AdminMembership.Override = previous;
+        }
+    }
+
+    [Fact]
+    public void FolderOwnedByAnUnresolvableAccountIsNotTrusted()
+    {
+        var previous = AdminMembership.Override;
+        AdminMembership.Override = _ => false;
+        try
+        {
+            TrustedFile.Evaluate("folder", LockedFolder(owner: EntraAdmin)).Should().Contain("owned by");
+        }
+        finally
+        {
+            AdminMembership.Override = previous;
+        }
+    }
+
+    [Fact]
+    public void WriteGrantToAKnownAdministratorIsAllowed()
+    {
+        var previous = AdminMembership.Override;
+        AdminMembership.Override = sid => sid == EntraAdmin;
+        try
+        {
+            var security = LockedFile();
+            security.AddAccessRule(new FileSystemAccessRule(EntraAdmin, FileSystemRights.FullControl, AccessControlType.Allow));
+            TrustedFile.Evaluate("config.yaml", security).Should().BeNull();
+        }
+        finally
+        {
+            AdminMembership.Override = previous;
+        }
     }
 
     [Fact]

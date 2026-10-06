@@ -157,7 +157,7 @@ Environment variables never override policy or machine settings. Every setting c
 
 Location: `C:\ProgramData\ManagedEncryption\config.yaml`
 
-The file is a legacy source, read below policy and machine settings. The installer restricts `C:\ProgramData\ManagedEncryption` to SYSTEM and Administrators (full control) and Users (read), with inheritance from ProgramData turned off. The tool ignores `config.yaml`, `escrow.marker` and `last_escrow.txt` when they, or the folder, could be written by any other account, and logs why. Each run as SYSTEM also repairs the folder ACL, so installs made before the installer set it are fixed on the next run.
+The file is a legacy source, read below policy and machine settings. The installer restricts `C:\ProgramData\ManagedEncryption` to SYSTEM and Administrators (full control) and Users (read), with inheritance from ProgramData turned off. The tool trusts `config.yaml`, `escrow.marker` and `last_escrow.txt` only while that folder is locked and no non-administrator can write, delete or re-permission the file; links are refused, and an ignored file is logged with the reason. Each run as SYSTEM also repairs the folder ACL and sets Administrators as the owner of anything an individual account owns. On the first lockdown of a folder that was open to every user, a file whose owner cannot be resolved as an administrator is moved to `quarantine\<timestamp>` rather than deleted.
 
 ```yaml
 server:

@@ -39,6 +39,37 @@ $trustedOwners = @(
     'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'
 )
 
+# Direct members of the local Administrators group. Membership through a nested group
+# (an Entra ID role, a domain group) cannot be resolved here, and the lookup itself can
+# fail on such members; either way those owners count as unresolved.
+$adminMembers = @()
+try {
+    $adminMembers = @(Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction Stop | ForEach-Object { $_.SID.Value })
+} catch { }
+
+# Locked: not inherited, owned by an administrator, and no one else may create, delete,
+# change or re-permission anything in it.
+function Test-Locked([string]$Path) {
+    $acl = Get-Acl -LiteralPath $Path
+    if (-not $acl.AreAccessRulesProtected) { return $false }
+    $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($trustedOwners -notcontains $owner -and $adminMembers -notcontains $owner) { return $false }
+    # WriteData, AppendData, DeleteSubdirectoriesAndFiles, Delete, WRITE_DAC, WRITE_OWNER, GENERIC_ALL, GENERIC_WRITE
+    $writeMask = [long](0x2 -bor 0x4 -bor 0x40 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000)
+    foreach ($rule in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+        if ($rule.AccessControlType -ne 'Allow') { continue }
+        if ($rule.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) { continue }
+        $sid = $rule.IdentityReference.Value
+        if ($trustedOwners -contains $sid -or $adminMembers -contains $sid -or $sid -in 'S-1-3-0', 'S-1-3-4') { continue }
+        if (([long][int]$rule.FileSystemRights -band 0xFFFFFFFFL) -band $writeMask) { return $false }
+    }
+    return $true
+}
+
+# Whether this is the folder's first lockdown decides what happens to files an
+# unresolved account owns: before it, any user could have created them.
+$wasLocked = Test-Locked $configDir
+
 # SYSTEM and Administrators full control, Users read, inheritance from ProgramData off.
 & icacls.exe $configDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /Q | Out-Null
 if ($LASTEXITCODE -ne 0) {
@@ -47,37 +78,56 @@ if ($LASTEXITCODE -ne 0) {
 }
 & icacls.exe $configDir /setowner '*S-1-5-32-544' /Q | Out-Null
 
-# Anything below it that a non-administrator owns, or that is a link, could still be
-# changed by whoever put it there: remove it. Logs are kept and taken back. Links are
-# removed before anything is deleted recursively, and never followed.
-$logsDir = Join-Path (Get-Item -LiteralPath $configDir -Force).FullName 'logs'
-function Clear-UntrustedEntries([IO.DirectoryInfo]$Directory) {
+# Below it: links are removed, never followed. An entry an individual account owns gets
+# Administrators as its owner when the folder was already locked, when the owner is a
+# known administrator, or when it is a log. On the first lockdown, anything else may have
+# come from a standard user: it is moved to quarantine\<timestamp>, never deleted.
+$rootFull = (Get-Item -LiteralPath $configDir -Force).FullName
+$logsDir = Join-Path $rootFull 'logs'
+$quarantineRoot = Join-Path $rootFull 'quarantine'
+$quarantine = Join-Path $quarantineRoot (Get-Date -Format 'yyyyMMdd-HHmmss')
+
+function Remove-Links([IO.DirectoryInfo]$Directory) {
     foreach ($item in $Directory.GetFileSystemInfos()) {
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            $item.Delete()
+            Write-Host "Removed $($item.FullName): a link" -ForegroundColor Yellow
+        } elseif ($item -is [IO.DirectoryInfo]) {
+            Remove-Links $item
+        }
+    }
+}
+
+function Protect-Entries([IO.DirectoryInfo]$Directory) {
+    foreach ($item in $Directory.GetFileSystemInfos()) {
+        if ($item.FullName -eq $quarantineRoot) { continue }
         try {
             if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
                 $item.Delete()
                 Write-Host "Removed $($item.FullName): a link" -ForegroundColor Yellow
                 continue
             }
-            if ($item -is [IO.DirectoryInfo]) {
-                Clear-UntrustedEntries $item
-            }
             $owner = (Get-Acl -LiteralPath $item.FullName).GetOwner([Security.Principal.SecurityIdentifier]).Value
+            $underLogs = $item.FullName -eq $logsDir -or $item.FullName -like "$logsDir\*"
             if ($trustedOwners -contains $owner) {
-                continue
-            }
-            if ($item.FullName -eq $logsDir -or $item.FullName -like "$logsDir\*") {
+                if ($item -is [IO.DirectoryInfo]) { Protect-Entries $item }
+            } elseif ($underLogs -or $wasLocked -or $adminMembers -contains $owner) {
                 & icacls.exe $item.FullName /setowner '*S-1-5-32-544' /Q | Out-Null
+                Write-Host "Set the owner of $($item.FullName) to Administrators (was $owner)" -ForegroundColor Yellow
+                if ($item -is [IO.DirectoryInfo]) { Protect-Entries $item }
             } else {
-                if ($item -is [IO.DirectoryInfo]) { $item.Delete($true) } else { $item.Delete() }
-                Write-Host "Removed $($item.FullName): not created by an administrator" -ForegroundColor Yellow
+                if ($item -is [IO.DirectoryInfo]) { Remove-Links $item }
+                $target = Join-Path $quarantine $item.FullName.Substring($rootFull.Length).TrimStart('\')
+                New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
+                Move-Item -LiteralPath $item.FullName -Destination $target
+                Write-Host "Quarantined $($item.FullName) to $target`: it predates the lockdown and its owner ($owner) is not a known administrator" -ForegroundColor Yellow
             }
         } catch {
             Write-Host "Could not check $($item.FullName): $_" -ForegroundColor Yellow
         }
     }
 }
-Clear-UntrustedEntries (Get-Item -LiteralPath $configDir -Force)
+Protect-Entries (Get-Item -LiteralPath $configDir -Force)
 
 # Children inherit the folder's ACL and nothing else.
 & icacls.exe "$configDir\*" /reset /T /C /Q 2>&1 | Out-Null

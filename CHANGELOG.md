@@ -31,15 +31,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The MSI and the package postinstall set an explicit ACL on
   `C:\ProgramData\ManagedEncryption`: SYSTEM and Administrators full control,
-  Users read, no inheritance. The postinstall also removes entries there that
-  were not created by an administrator.
-- `config.yaml`, `escrow.marker` and `last_escrow.txt` are ignored, with a
-  logged reason, when they or their folder could be written by an account
-  other than SYSTEM, Administrators or TrustedInstaller.
-- On every run as SYSTEM, the tool repairs that ACL itself, so installs
-  that predate it are fixed without a reinstall. It removes links and
-  entries not created by an administrator, and never follows links. Files
-  SYSTEM or Administrators own, such as a deployed `config.yaml`, are kept.
+  Users read, no inheritance.
+- `config.yaml`, `escrow.marker` and `last_escrow.txt` are trusted only when
+  the folder is locked (owned by an administrator, no one else able to create,
+  delete or re-permission anything in it) and no non-administrator holds
+  write, delete, WRITE_DAC or WRITE_OWNER on the file. Links are refused. An
+  individual owner is not held against a file in a locked folder, since only
+  an administrator can create one there. Otherwise the file is ignored and
+  the reason logged.
+- On every run as SYSTEM, and in the postinstall, the folder ACL is repaired,
+  so installs that predate it are fixed without a reinstall. Links are removed,
+  never followed. An entry an individual account owns gets Administrators as
+  its owner. Only on the first lockdown of a folder that was open to every
+  user, an entry whose owner cannot be resolved as an administrator is moved
+  to `quarantine\<timestamp>` and logged; nothing is deleted.
 
 - Credentials move to `HKLM\SOFTWARE\Crypt\ManagedEncryption\Secrets`, which
   only SYSTEM and Administrators can read. Every elevated run, including the one

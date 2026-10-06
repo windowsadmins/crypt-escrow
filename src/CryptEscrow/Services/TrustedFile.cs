@@ -7,14 +7,17 @@ namespace CryptEscrow.Services;
 /// <summary>
 /// Decides whether a file under ProgramData may be trusted by a run as SYSTEM. The
 /// escrow task runs as SYSTEM and acts on config.yaml and its own state files, so a
-/// file a non-administrator could have written, or could still change, is ignored.
+/// file a non-administrator could change, replace or re-permission is ignored.
 /// </summary>
 /// <remarks>
-/// A file is trusted when it is not a link, its owner is SYSTEM, Administrators or
-/// TrustedInstaller, and neither it nor its folder grants any other account a right
-/// that would let it change, replace or re-permission the file. The installer gives
-/// ManagedEncryption that ACL: SYSTEM and Administrators full control, Users read,
-/// inheritance off.
+/// <para>The folder must be locked: not a link, owned by SYSTEM, Administrators,
+/// TrustedInstaller or a known administrator, and granting no one else a right to create,
+/// delete, change or re-permission what is in it. The installer gives ManagedEncryption that
+/// ACL: SYSTEM and Administrators full control, Users read, inheritance off.</para>
+/// <para>In a locked folder only an administrator can create a file, so the file's owner is
+/// not held against it, even an individual account the tool cannot resolve. The file must
+/// still not be a link, and no non-administrator may hold write, delete, WRITE_DAC or
+/// WRITE_OWNER on it. A SYSTEM run then normalises such an owner to Administrators.</para>
 /// </remarks>
 [SupportedOSPlatform("windows")]
 internal static class TrustedFile
@@ -58,17 +61,21 @@ internal static class TrustedFile
             if (file.Attributes.HasFlag(FileAttributes.ReparsePoint))
                 return $"{path} is a link";
 
-            var reason = Evaluate(path,
-                file.GetAccessControl(AccessControlSections.Owner | AccessControlSections.Access));
-            if (reason is not null)
-                return reason;
-
             var folder = file.Directory!;
             if (folder.Attributes.HasFlag(FileAttributes.ReparsePoint))
                 return $"{folder.FullName} is a link";
 
-            return Evaluate(folder.FullName,
-                folder.GetAccessControl(AccessControlSections.Owner | AccessControlSections.Access));
+            // The folder sits under ProgramData, where anyone can create things, so its own
+            // owner has to be an administrator.
+            var reason = Evaluate(folder.FullName,
+                folder.GetAccessControl(AccessControlSections.Owner | AccessControlSections.Access),
+                ownerVouchedByParent: false);
+            if (reason is not null)
+                return reason;
+
+            return Evaluate(path,
+                file.GetAccessControl(AccessControlSections.Owner | AccessControlSections.Access),
+                ownerVouchedByParent: true);
         }
         catch (Exception ex)
         {
@@ -77,14 +84,18 @@ internal static class TrustedFile
     }
 
     /// <summary>
-    /// Null when the owner is trusted and no other account holds a write right that
-    /// applies to the object itself; otherwise why not.
+    /// Null when the owner is acceptable and no non-administrator holds a write right that
+    /// applies to the object itself; otherwise why not. <paramref name="ownerVouchedByParent"/>
+    /// is true when the object sits in a locked folder, where only an administrator could
+    /// have created it.
     /// </summary>
-    internal static string? Evaluate(string what, FileSystemSecurity security)
+    internal static string? Evaluate(string what, FileSystemSecurity security, bool ownerVouchedByParent = false)
     {
         var owner = security.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
-        if (!IsTrustedAccount(owner))
-            return $"{what} is owned by {owner?.Value ?? "an unknown account"}, not by SYSTEM or Administrators";
+        if (owner is null)
+            return $"{what} has no readable owner";
+        if (!ownerVouchedByParent && !AdminMembership.IsKnownAdministrator(owner))
+            return $"{what} is owned by {owner.Value}, not by SYSTEM or an administrator";
 
         foreach (FileSystemAccessRule rule in security.GetAccessRules(true, true, typeof(SecurityIdentifier)))
         {
@@ -95,8 +106,8 @@ internal static class TrustedFile
                 continue;
 
             var sid = rule.IdentityReference as SecurityIdentifier;
-            // The owner is already known to be trusted, so its stand-ins are too.
-            if (IsTrustedAccount(sid) || sid == CreatorOwner || sid == OwnerRights)
+            // The owner has been accepted above, so its stand-ins are too.
+            if (sid == CreatorOwner || sid == OwnerRights || AdminMembership.IsKnownAdministrator(sid))
                 continue;
 
             var rights = (int)rule.FileSystemRights;
