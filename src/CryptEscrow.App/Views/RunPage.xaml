@@ -1,0 +1,79 @@
+<Page
+    x:Class="CryptEscrow.App.Views.RunPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    NavigationCacheMode="Required">
+
+    <Grid RowSpacing="0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- ═══ Mode picker ═══ -->
+        <StackPanel Grid.Row="0" Padding="24,16,24,0" Spacing="4">
+            <RadioButtons x:Name="ModePicker" Header="Operation" MaxColumns="3"
+                          SelectionChanged="ModePicker_SelectionChanged" />
+            <TextBlock x:Name="ModeDescription" Style="{StaticResource CaptionTextBlockStyle}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="WrapWholeWords" />
+        </StackPanel>
+
+        <!-- ═══ Run Control Bar ═══ -->
+        <Grid Grid.Row="1" Padding="24,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Run / Stop Button -->
+            <Button x:Name="RunButton" Grid.Column="0" Click="RunButton_Click" VerticalAlignment="Center"
+                    ToolTipService.ToolTip="Runs as administrator">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon x:Name="RunIcon" Glyph="&#xE768;" FontSize="16" />
+                    <TextBlock x:Name="RunText" Text="Run" />
+                </StackPanel>
+            </Button>
+
+            <!-- Debug + Clear -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" Margin="12,0,0,0" VerticalAlignment="Center">
+                <CheckBox x:Name="DebugToggle" Content="Debug" Checked="DebugToggle_Changed"
+                          Unchecked="DebugToggle_Changed" />
+                <Button x:Name="ClearButton" Content="Clear" Click="ClearButton_Click"
+                        Visibility="Collapsed" />
+            </StackPanel>
+
+            <!-- Right-aligned status -->
+            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <ProgressRing x:Name="RunningProgress" IsActive="False" Width="20" Height="20" />
+                <TextBlock x:Name="RunningLabel" Text="Running..."
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           VerticalAlignment="Center" Visibility="Collapsed" />
+                <StackPanel x:Name="StatusPanel" Orientation="Horizontal" Spacing="4"
+                            VerticalAlignment="Center" Visibility="Collapsed">
+                    <FontIcon x:Name="StatusIcon" FontSize="16" />
+                    <TextBlock x:Name="StatusText" />
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <!-- ═══ Error / Success Banner ═══ -->
+        <InfoBar x:Name="ResultBanner" Grid.Row="2"
+                 IsOpen="False" IsClosable="True" Margin="24,0,24,8" />
+
+        <!-- ═══ Divider ═══ -->
+        <MenuFlyoutSeparator Grid.Row="3" />
+
+        <!-- ═══ Console Output ═══ -->
+        <ScrollViewer x:Name="ConsoleScroller" Grid.Row="4" Padding="12"
+                      Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
+            <RichTextBlock x:Name="ConsoleOutput" IsTextSelectionEnabled="True"
+                           FontFamily="Cascadia Mono, Consolas, Courier New" FontSize="12"
+                           TextWrapping="Wrap" Padding="4,0" />
+        </ScrollViewer>
+    </Grid>
+</Page>

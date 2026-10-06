@@ -140,6 +140,16 @@ Options:
   -f, --frequency        Task frequency: hourly, daily, weekly, login (default: daily)
 ```
 
+## Managed Encryption Escrow app
+
+`Managed Encryption Escrow.exe` installs beside `checkin.exe` in `C:\Program Files\Crypt` and adds a Start menu shortcut. It has three tabs.
+
+- **Prefs** shows every setting. It opens read-only; **Unlock** relaunches it as administrator, and changes then save to `HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings`. A setting that policy sets shows the policy value and stays locked. The API key is never displayed: once unlocked, the tab only says whether one is saved. The PFX passphrase stays in Credential Manager and the app does not read it.
+- **Run** runs one of three operations as administrator and streams its log: **Escrow now** (`escrow --force`), **Verify escrow** (`verify`) and **Rotate key** (`rotate`, after a confirmation; old keys are removed only if *Remove old recovery keys after rotation* is on).
+- **Logs** lists the log folder one day per session, newest first, with lines coloured by level.
+
+The app removes anything shaped like a BitLocker recovery password from what it displays.
+
 ## Configuration
 
 Every setting is resolved through the same chain, highest first:

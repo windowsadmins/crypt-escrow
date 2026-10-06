@@ -5,15 +5,19 @@
     <TargetFramework>net10.0</TargetFramework>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <Platform Condition="'$(Platform)' == ''">x64</Platform>
+    <!-- ICE03: some WinUI resource DLLs carry locales (gd-gb, mi-NZ) missing from the ICE
+         language table, and Microsoft.ui.xaml.dll lists more locales than the column holds. -->
+    <SuppressIces>ICE03</SuppressIces>
   </PropertyGroup>
 
   <PropertyGroup>
     <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.0</ProductVersion>
     <BinDir Condition="'$(BinDir)' == ''">$(MSBuildProjectDirectory)\..\..\release\$(Platform)</BinDir>
+    <AppDir Condition="'$(AppDir)' == ''">$(BinDir)\app</AppDir>
   </PropertyGroup>
 
   <PropertyGroup>
-    <DefineConstants>BinDir=$(BinDir);ProductVersion=$(ProductVersion)</DefineConstants>
+    <DefineConstants>BinDir=$(BinDir);AppDir=$(AppDir);ProductVersion=$(ProductVersion)</DefineConstants>
   </PropertyGroup>
   
   <ItemGroup>

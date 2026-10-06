@@ -18,51 +18,22 @@ public class Program
     internal const string FileTemplate =
         "[{Timestamp:yyyy-MM-dd HH:mm:ss}] {LevelName:l} {Message:lj}{NewLine}{Exception}";
 
-    /// <summary>
-    /// %ProgramData%\ManagedEncryption\logs unless the config says otherwise.
-    /// Everything else this tool owns already lives under ManagedEncryption; the log
-    /// was the one thing writing to a root of its own, so the path the installer
-    /// configures and the docs quote never existed.
-    /// </summary>
-    internal static string ResolveLogDirectory(string? configured)
-    {
-        if (!string.IsNullOrWhiteSpace(configured))
-            return Path.GetDirectoryName(configured!) ?? configured!;
-
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "ManagedEncryption", "logs");
-    }
+    /// <summary>%ProgramData%\ManagedEncryption\logs unless the config says otherwise.</summary>
+    internal static string ResolveLogDirectory(string? configured) => LogLayout.ResolveLogDirectory(configured);
 
     /// <summary>
     /// The log for a run starting at <paramref name="timestamp"/>. The day directory is
     /// this tool's session: it runs on boot and on every escrow, too often to justify a
     /// directory per run, so a day's runs share one, with the structured event stream
-    /// beside them. That is the layout every managed tool shares.
-    ///
-    /// The file name is deliberately static and Serilog's own rolling is off. The name
-    /// used to carry the date, which Serilog then appended its own date to -- so the
-    /// files read CryptEscrow_2026030220260302.log, and because every day produced a
-    /// different base name, retainedFileCountLimit only ever saw a set of one and never
-    /// deleted anything. One machine had 179 daily files against a limit of 30. The day
-    /// now lives in the directory, and retention removes whole day directories.
+    /// beside them. Serilog's own rolling is off and the file name is static, so
+    /// retention removes whole day directories. The layout lives in
+    /// <see cref="LogLayout"/> because the app reads it too.
     /// </summary>
-    internal static string ResolveLogPath(string? configured, DateTime timestamp)
-    {
-        if (!string.IsNullOrWhiteSpace(configured))
-        {
-            var directory = Path.GetDirectoryName(configured!);
-            var name = Path.GetFileName(configured!);
-            return string.IsNullOrEmpty(directory)
-                ? configured!
-                : Path.Combine(directory, timestamp.ToString(DayFormat), name);
-        }
+    internal static string ResolveLogPath(string? configured, DateTime timestamp) =>
+        LogLayout.ResolveLogPath(configured, timestamp);
 
-        return Path.Combine(ResolveLogDirectory(null), timestamp.ToString(DayFormat), "crypt-escrow.log");
-    }
-
-    internal const string DayFormat = "yyyy-MM-dd";
-    internal const string EventsFileName = "events.jsonl";
+    internal const string DayFormat = LogLayout.DayFormat;
+    internal const string EventsFileName = LogLayout.EventsFileName;
 
     /// <summary>
     /// Removes day directories older than the retention window, and the flat logs the

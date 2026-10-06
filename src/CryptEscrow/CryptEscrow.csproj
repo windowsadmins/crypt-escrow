@@ -34,6 +34,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CryptEscrow.Core\CryptEscrow.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="CryptEscrow.Tests" />
   </ItemGroup>
 

@@ -59,6 +59,8 @@ jobs:
             New-Item -ItemType Directory -Path "dist/$arch" -Force | Out-Null
             Copy-Item "src/CryptEscrow/bin/Release/net10.0-windows/$rid/publish/checkin.exe" "dist/$arch/checkin.exe" -Force
             Write-Host "Built: dist/$arch/checkin.exe"
+
+            ./build/app/Publish-App.ps1 -Arch $arch -OutputDir "dist/$arch/app" -Version $version
           }
 
       - name: Download cimipkg
@@ -92,6 +94,7 @@ jobs:
             New-Item -ItemType Directory -Path "$stagingDir/payload" -Force | Out-Null
             New-Item -ItemType Directory -Path "$stagingDir/scripts" -Force | Out-Null
             Copy-Item "dist/$arch/checkin.exe" "$stagingDir/payload/" -Force
+            Copy-Item "dist/$arch/app/*" "$stagingDir/payload/" -Recurse -Force
 
             (Get-Content "build/pkg/build-info.yaml" -Raw) `
               -replace '\{\{VERSION\}\}', $version `

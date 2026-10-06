@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `checkin config show` lists every setting with the layer it came from.
 - The package postinstall writes a machine `CRYPT_ESCROW_SERVER_URL` to the
   settings key instead of generating `config.yaml`.
+- The debug log of a server response redacts anything shaped like a recovery
+  password.
 
 ### Added
 
@@ -26,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Policy support for every setting the tool reads, including
   `CertificateStoreLocation`, `CertificateStoreName`, `LogLevel`,
   `LogFilePath` and `LogRetainedDays`.
+- **Managed Encryption Escrow app** (`Managed Encryption Escrow.exe`), installed
+  beside `checkin.exe` with a Start menu shortcut. Prefs is read-only until
+  Unlock relaunches it elevated; policy-set fields show the policy value and
+  stay locked; secrets show only whether they are saved. Run offers Escrow now,
+  Verify escrow and Rotate key, elevated, streaming the run's log. Logs lists
+  day sessions newest first, coloured by level. Recovery passwords are redacted
+  from everything the app shows.
+- `CryptEscrow.Core` library holding the settings, file-trust and log-layout
+  code the CLI and the app share.
 
 ### Security
 
