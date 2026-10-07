@@ -18,8 +18,6 @@ public class Program
     internal const string FileTemplate =
         "[{Timestamp:yyyy-MM-dd HH:mm:ss}] {LevelName:l} {Message:lj}{NewLine}{Exception}";
 
-    private const int DefaultRetainedDays = 30;
-
     /// <summary>
     /// %ProgramData%\ManagedEncryption\logs unless the config says otherwise.
     /// Everything else this tool owns already lives under ManagedEncryption; the log
@@ -136,6 +134,13 @@ public class Program
     internal static bool IsVerbose(string[] args)
         => args.Any(a => a is "-v" or "--verbose");
 
+    internal static bool IsElevated()
+    {
+        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        return new System.Security.Principal.WindowsPrincipal(identity)
+            .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+    }
+
     public static async Task<int> Main(string[] args)
     {
         var verbose = IsVerbose(args);
@@ -146,17 +151,33 @@ public class Program
             .WriteTo.Console(outputTemplate: ConsoleTemplate)
             .CreateLogger();
 
-        var logging = ConfigService.LoadConfig()?.Logging;
+        // Before anything is read from ProgramData\ManagedEncryption: an install made
+        // before the installer set its ACL lets any user add files there, and this run
+        // trusts what it finds. Noted now, logged once the file log is open.
+        var guardNotes = DataDirectoryGuard.IsRunningAsSystem()
+            ? DataDirectoryGuard.Secure(ConfigService.DataDirectory)
+            : new List<string>();
+
+        // Credentials found in a user-readable place move to the protected store before
+        // the configuration is read. Only an elevated run can write the store.
+        var secretNotes = IsElevated()
+            ? SecretStore.MigrateReadableCopies()
+            : new List<string>();
+
+        // A config file this run ignores is recorded now and logged once the file log
+        // is open, so the reason reaches the log and not only the console.
+        ConfigService.DeferIgnoredFileWarnings = true;
+        var logging = ConfigService.GetLoggingConfig();
 
         var now = DateTime.Now;
-        var retainedDays = logging?.RetainedDays ?? DefaultRetainedDays;
-        var logPath = ResolveLogPath(logging?.FilePath, now);
+        var retainedDays = logging.RetainedDays;
+        var logPath = ResolveLogPath(logging.FilePath, now);
         var logDirectory = Path.GetDirectoryName(logPath)!;
         Directory.CreateDirectory(logDirectory);
-        PruneLogDirectory(ResolveLogDirectory(logging?.FilePath), retainedDays, now);
+        PruneLogDirectory(ResolveLogDirectory(logging.FilePath), retainedDays, now);
 
         Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Is(ResolveLevel(logging?.Level, verbose))
+            .MinimumLevel.Is(ResolveLevel(logging.Level, verbose))
             .Enrich.With<LevelNameEnricher>()
             .WriteTo.Console(outputTemplate: ConsoleTemplate)
             // Serilog's own rolling is off: the day is the directory, so a static file
@@ -171,6 +192,14 @@ public class Program
                 shared: true)
             .CreateLogger();
 
+        foreach (var note in guardNotes)
+            Log.Warning("Data directory: {Note}", note);
+        foreach (var note in secretNotes)
+            Log.Warning("Secrets: {Note}", note);
+        ConfigService.DeferIgnoredFileWarnings = false;
+        foreach (var note in ConfigService.IgnoredFileNotes)
+            Log.Warning("{Note}", note);
+
         try
         {
             var rootCommand = new RootCommand("BitLocker recovery key escrow to Crypt Server")
@@ -181,7 +210,7 @@ public class Program
             // Global options
             var serverOption = new Option<string?>(
                 aliases: ["--server", "-s"],
-                description: "Crypt Server URL (or set CRYPT_ESCROW_SERVER_URL)");
+                description: "Crypt Server URL for this run; overrides policy and settings");
             
             var driveOption = new Option<string>(
                 aliases: ["--drive", "-d"],
@@ -244,7 +273,7 @@ public class Program
             configShowCommand.SetHandler(() => ConfigCommand.Show());
             configCommand.AddCommand(configShowCommand);
             
-            var configSetCommand = new Command("set", "Set configuration value");
+            var configSetCommand = new Command("set", @"Set a machine setting (HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings); needs admin");
             var keyArg = new Argument<string>("key", "Configuration key");
             var valueArg = new Argument<string>("value", "Configuration value");
             configSetCommand.AddArgument(keyArg);
@@ -267,6 +296,22 @@ public class Program
                 Environment.ExitCode = result;
             }, serverOption, frequencyOption);
             rootCommand.AddCommand(registerCommand);
+
+            // migrate-secrets: the installer's explicit step. Startup has already migrated;
+            // this reports whether anything failed, through the exit code.
+            var migrateCommand = new Command("migrate-secrets", "Move credentials into the protected store (admin)")
+            {
+                IsHidden = true
+            };
+            migrateCommand.SetHandler(() =>
+            {
+                Environment.ExitCode = !IsElevated()
+                    ? ExitCodes.ConfigurationError
+                    : secretNotes.Any(n => n.StartsWith("Could not", StringComparison.Ordinal))
+                        ? ExitCodes.ConfigurationError
+                        : ExitCodes.Success;
+            });
+            rootCommand.AddCommand(migrateCommand);
 
             await rootCommand.InvokeAsync(args);
             return Environment.ExitCode;

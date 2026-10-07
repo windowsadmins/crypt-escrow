@@ -19,7 +19,7 @@ public sealed class GlobalStateCollection
 }
 
 /// <summary>
-/// Covers the env-var > registry > YAML > default priority chain for every
+/// Covers the policy > environment > YAML > default priority chain for every
 /// GetX() helper on <see cref="ConfigService"/>, plus GetAuthConfig composition.
 /// Tests never touch the real ProgramData config path or HKLM registry; see
 /// <see cref="TempConfigFile"/> and <see cref="TempRegistryKey"/>.
@@ -30,7 +30,7 @@ public class ConfigServiceTests
     // -------------------------- GetApiKey --------------------------
 
     [Fact]
-    public void GetApiKey_EnvVarWinsOverRegistryAndYaml()
+    public void GetApiKey_PolicyWinsOverEnvironmentAndYaml()
     {
         using var env = new EnvironmentSnapshot("CRYPT_API_KEY");
         using var reg = new TempRegistryKey();
@@ -40,7 +40,7 @@ public class ConfigServiceTests
         yaml.WriteYaml("server:\n  auth:\n    api_key: from-yaml\n");
         env.Set("CRYPT_API_KEY", "from-env");
 
-        ConfigService.GetApiKey().Should().Be("from-env");
+        ConfigService.GetApiKey().Should().Be("from-registry");
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public class ConfigServiceTests
     // -------------------------- GetUseMtls --------------------------
 
     [Fact]
-    public void GetUseMtls_EnvVarWins()
+    public void GetUseMtls_PolicyWinsOverEnvironment()
     {
         using var env = new EnvironmentSnapshot("CRYPT_USE_MTLS");
         using var reg = new TempRegistryKey();
@@ -90,7 +90,7 @@ public class ConfigServiceTests
         reg.SetDword("UseMtls", 0);
         env.Set("CRYPT_USE_MTLS", "true");
 
-        ConfigService.GetUseMtls().Should().BeTrue();
+        ConfigService.GetUseMtls().Should().BeFalse();
     }
 
     [Fact]
@@ -118,7 +118,7 @@ public class ConfigServiceTests
     // ----------------------- GetClientCertPath / GetClientKeyPath ---
 
     [Fact]
-    public void GetClientCertPath_EnvWinsOverRegistryAndYaml()
+    public void GetClientCertPath_PolicyWinsOverEnvironmentAndYaml()
     {
         using var env = new EnvironmentSnapshot("CRYPT_CLIENT_CERT_PATH");
         using var reg = new TempRegistryKey();
@@ -128,7 +128,7 @@ public class ConfigServiceTests
         yaml.WriteYaml("server:\n  auth:\n    client_cert_path: C:\\yaml\\cert.pem\n");
         env.Set("CRYPT_CLIENT_CERT_PATH", @"C:\env\cert.pem");
 
-        ConfigService.GetClientCertPath().Should().Be(@"C:\env\cert.pem");
+        ConfigService.GetClientCertPath().Should().Be(@"C:\reg\cert.pem");
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public class ConfigServiceTests
     // ----------------------- GetPfxPath / GetPfxPasswordCredential --
 
     [Fact]
-    public void GetPfxPath_EnvWinsOverRegistryAndYaml()
+    public void GetPfxPath_PolicyWinsOverEnvironmentAndYaml()
     {
         using var env = new EnvironmentSnapshot("CRYPT_PFX_PATH");
         using var reg = new TempRegistryKey();
@@ -169,7 +169,7 @@ public class ConfigServiceTests
         yaml.WriteYaml("server:\n  auth:\n    pfx_path: C:\\yaml\\client.pfx\n");
         env.Set("CRYPT_PFX_PATH", @"C:\env\client.pfx");
 
-        ConfigService.GetPfxPath().Should().Be(@"C:\env\client.pfx");
+        ConfigService.GetPfxPath().Should().Be(@"C:\reg\client.pfx");
     }
 
     [Fact]
@@ -198,7 +198,7 @@ public class ConfigServiceTests
     // -------------------------- GetCertificateSubject ---------------
 
     [Fact]
-    public void GetCertificateSubject_EnvWins()
+    public void GetCertificateSubject_PolicyWinsOverEnvironment()
     {
         using var env = new EnvironmentSnapshot("CRYPT_CERT_SUBJECT");
         using var reg = new TempRegistryKey();
@@ -207,7 +207,7 @@ public class ConfigServiceTests
         reg.SetString("CertificateSubject", "from-reg.example.com");
         env.Set("CRYPT_CERT_SUBJECT", "from-env.example.com");
 
-        ConfigService.GetCertificateSubject().Should().Be("from-env.example.com");
+        ConfigService.GetCertificateSubject().Should().Be("from-reg.example.com");
     }
 
     // -------------------------- GetAuthConfig composition -----------

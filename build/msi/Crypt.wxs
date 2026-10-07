@@ -24,8 +24,35 @@
       </Directory>
     </StandardDirectory>
     
+    <!-- The escrow task runs as SYSTEM and reads its config and state from here, so
+         only SYSTEM and Administrators may write it: full control for both, Users read,
+         nothing inherited from ProgramData. Same ACL as the package postinstall. -->
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DATAFOLDER" Name="ManagedEncryption">
+        <Component Id="DataFolder" Guid="0E9CDB49-A0FA-49B0-BEF4-C5CE90F5C5B6" Bitness="always64">
+          <CreateFolder>
+            <PermissionEx Sddl="O:BAG:SYD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)" />
+          </CreateFolder>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Credentials live in HKLM\SOFTWARE\Crypt\ManagedEncryption\Secrets, readable only by
+         SYSTEM and Administrators. MSI fails the install if it cannot apply this ACL.
+         The CLI moves any credential it finds in the readable policy or settings keys here. -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Component Id="SecretsStore" Guid="4D2A9C61-7E3B-4F85-A1C6-2B9E0D7F5A38" Bitness="always64">
+        <RegistryKey Root="HKLM" Key="SOFTWARE\Crypt\ManagedEncryption\Secrets" ForceCreateOnInstall="yes">
+          <PermissionEx Sddl="D:PAI(A;CI;KA;;;SY)(A;CI;KA;;;BA)" />
+        </RegistryKey>
+        <RegistryValue Root="HKLM" Key="SOFTWARE\Crypt\ManagedEncryption" Name="SecretsStore" Value="1" Type="integer" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
     <ComponentGroup Id="ProductComponents">
       <ComponentRef Id="CryptExe" />
+      <ComponentRef Id="DataFolder" />
+      <ComponentRef Id="SecretsStore" />
     </ComponentGroup>
     
     <CustomAction Id="RegisterScheduledTask" 

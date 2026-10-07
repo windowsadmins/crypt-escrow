@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Settings precedence.** Policy now overrides environment variables. The
+  chain is: command line, policy (Group Policy path, then the Intune
+  PolicyManager path, both unchanged), machine settings, environment, the
+  legacy `config.yaml`, defaults.
+- `checkin config set` writes `HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings`
+  instead of `config.yaml`, and needs an elevated prompt.
+- `checkin config show` lists every setting with the layer it came from.
+- The package postinstall writes a machine `CRYPT_ESCROW_SERVER_URL` to the
+  settings key instead of generating `config.yaml`.
+
+### Added
+
+- Machine settings key `HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings`,
+  read in the 64-bit registry view.
+- Policy support for every setting the tool reads, including
+  `CertificateStoreLocation`, `CertificateStoreName`, `LogLevel`,
+  `LogFilePath` and `LogRetainedDays`.
+
+### Security
+
+- The MSI and the package postinstall set an explicit ACL on
+  `C:\ProgramData\ManagedEncryption`: SYSTEM and Administrators full control,
+  Users read, no inheritance.
+- `config.yaml`, `escrow.marker` and `last_escrow.txt` are trusted only when
+  the folder is locked (owned by an administrator, no one else able to create,
+  delete or re-permission anything in it) and no non-administrator holds
+  write, delete, WRITE_DAC or WRITE_OWNER on the file. Links are refused. An
+  individual owner is not held against a file in a locked folder, since only
+  an administrator can create one there. Otherwise the file is ignored and
+  the reason logged.
+- On every run as SYSTEM, and in the postinstall, the folder ACL is repaired,
+  so installs that predate it are fixed without a reinstall. Links are removed,
+  never followed. An entry an individual account owns gets Administrators as
+  its owner. Only on the first lockdown of a folder that was open to every
+  user, an entry whose owner cannot be resolved as an administrator is moved
+  to `quarantine\<timestamp>` and logged; nothing is deleted.
+
+- Credentials move to `HKLM\SOFTWARE\Crypt\ManagedEncryption\Secrets`, which
+  only SYSTEM and Administrators can read. Every elevated run, including the one
+  the installer starts, moves an API key it finds in policy (blanked, so it still
+  shows as managed), the settings key, the machine environment or `config.yaml`
+  into it. The value is written and read back before the readable copy is
+  removed, and a lower layer never replaces a value that came from policy.
+  `config set server.auth.api_key` writes the store. The MSI and the
+  postinstall create the key with that ACL and fail the install if they cannot.
+
+### Removed
+
+- The unused `scripts/postinstall.ps1`, an outdated copy of
+  `build/pkg/postinstall.ps1`.
+
 ## [1.2.0] - 2026-04-11
 
 Rollup of four PRs merged on the same day, covering a major mTLS
