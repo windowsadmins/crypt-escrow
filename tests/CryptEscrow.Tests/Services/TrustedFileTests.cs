@@ -236,12 +236,15 @@ public class TrustedFileTests
     }
 
     [Fact]
-    public void FileCreatedByTheTestUserIsNotTrusted()
+    public void FileCreatedByANonAdministratorIsNotTrusted()
     {
         // A file in a temp folder is owned by, and writable by, the account running the
-        // tests, which is never SYSTEM or the Administrators group.
+        // tests. That account is treated as a standard user here: on a build agent it is
+        // often a local administrator, and an administrator's file is rightly trusted.
         var dir = Path.Combine(Path.GetTempPath(), "crypt-escrow-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
+        var previous = AdminMembership.Override;
+        AdminMembership.Override = _ => false;
         try
         {
             var path = Path.Combine(dir, "config.yaml");
@@ -251,6 +254,7 @@ public class TrustedFileTests
         }
         finally
         {
+            AdminMembership.Override = previous;
             Directory.Delete(dir, recursive: true);
         }
     }
