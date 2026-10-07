@@ -36,6 +36,9 @@ jobs:
         run: |
           $tag = "${{ github.ref_name }}"
           $version = $tag -replace '^v',''
+          # Deployed builds compare file versions; a release must not go below the fleet's.
+          $floor = [version]'2026.9.3.2134'
+          if ([version]$version -lt $floor) { throw "Version $version is below the deployed $floor" }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Tag: $tag -> Version: $version"
 
@@ -139,8 +142,18 @@ jobs:
       - name: Prepare release zips
         shell: pwsh
         run: |
+          # The zip is the install folder, C:\Program Files\Crypt, as build-info.yaml lays it
+          # out: checkin.exe beside Managed Encryption Escrow.exe, its resources.pri and
+          # the Windows App SDK runtime.
           foreach ($arch in @("x64", "arm64")) {
-            Compress-Archive -Path "dist/$arch/checkin.exe" -DestinationPath "release/checkin-$arch.zip" -Force
+            $zipRoot = "zip-$arch"
+            New-Item -ItemType Directory -Path $zipRoot -Force | Out-Null
+            Copy-Item "dist/$arch/app/*" $zipRoot -Recurse -Force
+            Copy-Item "dist/$arch/checkin.exe" $zipRoot -Force
+            foreach ($required in "checkin.exe", "Managed Encryption Escrow.exe", "resources.pri") {
+              if (-not (Test-Path (Join-Path $zipRoot $required))) { throw "$required missing from the $arch zip" }
+            }
+            Compress-Archive -Path "$zipRoot/*" -DestinationPath "release/checkin-$arch.zip" -Force
           }
 
       - name: Create GitHub Release

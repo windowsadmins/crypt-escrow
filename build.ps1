@@ -712,6 +712,9 @@ installs:
     path: 'C:\Program Files\Crypt\checkin.exe'
     md5checksum: '$cryptHash'
     version: '$timestamp'
+  - type: file
+    path: 'C:\Program Files\Crypt\Managed Encryption Escrow.exe'
+    version: '$timestamp'
 preinstall_script: |
   # Set Crypt Server URL before installation
   [Environment]::SetEnvironmentVariable('CRYPT_ESCROW_SERVER_URL', '$CryptServer', 'Machine')

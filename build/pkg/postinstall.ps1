@@ -180,6 +180,26 @@ try {
     exit 1
 }
 
+# Start Menu shortcut for every user, for the app installed beside checkin.exe
+$appExe = Join-Path $installPath 'Managed Encryption Escrow.exe'
+if (Test-Path $appExe) {
+    try {
+        $shortcutPath = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Managed Encryption Escrow.lnk'
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $appExe
+        $shortcut.WorkingDirectory = $installPath
+        $shortcut.IconLocation = "$appExe,0"
+        $shortcut.Description = 'BitLocker recovery key escrow settings, runs and logs'
+        $shortcut.Save()
+        Write-Host "Start Menu shortcut: $shortcutPath" -ForegroundColor Green
+    } catch {
+        Write-Host "Could not create the Start Menu shortcut: $_" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "Managed Encryption Escrow.exe not found in $installPath - no shortcut created" -ForegroundColor Yellow
+}
+
 # Register scheduled task for automatic key rotation
 try {
     $cryptExe = Join-Path $installPath 'checkin.exe'

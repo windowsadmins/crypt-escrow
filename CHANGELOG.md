@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Verify escrow and Rotate key, elevated, streaming the run's log. Logs lists
   day sessions newest first, coloured by level. Recovery passwords are redacted
   from everything the app shows.
+- The release zip `checkin-<arch>.zip` holds the whole install folder: `checkin.exe`
+  beside the app, its `resources.pri` and the Windows App SDK runtime. The
+  package postinstall adds a Start Menu shortcut for every user, the preinstall
+  closes the app before files are replaced, and a release whose version is below
+  2026.09.03.2134 fails.
 - `CryptEscrow.Core` library holding the settings, file-trust and log-layout
   code the CLI and the app share.
 
