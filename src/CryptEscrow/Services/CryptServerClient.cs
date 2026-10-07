@@ -357,7 +357,7 @@ public class CryptServerClient : IDisposable
                 response.EnsureSuccessStatusCode();
 
                 var json = await response.Content.ReadAsStringAsync();
-                Log.Debug("Server response: {Json}", json);
+                Log.Debug("Server response: {Json}", CryptEscrow.Gui.RecoveryKeyRedactor.Redact(json));
 
                 var result = JsonSerializer.Deserialize<CheckinResponse>(json, JsonOptions);
                 return result ?? new CheckinResponse();

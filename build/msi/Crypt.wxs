@@ -10,9 +10,13 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of Crypt is already installed." />
     
     <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon.ico" SourceFile="$(var.AppDir)\Assets\ManagedEncryption.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
     
     <Feature Id="ProductFeature" Title="Crypt" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="AppFiles" />
     </Feature>
     
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -21,7 +25,20 @@
           <File Id="checkin.exe" Source="$(var.BinDir)\checkin.exe" KeyPath="yes" />
           <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]" Permanent="no" Part="last" Action="set" System="yes" />
         </Component>
+
       </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="6B1E2D74-3C9A-4F58-9E21-8D47A0C5B3F6">
+        <Shortcut Id="AppShortcut"
+                  Name="Managed Encryption Escrow"
+                  Description="BitLocker recovery key escrow settings, runs and logs"
+                  Target="[INSTALLFOLDER]Managed Encryption Escrow.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <!-- A shortcut-only component needs a per-user key path (ICE38, ICE43, ICE57). -->
+        <RegistryValue Root="HKCU" Key="Software\Crypt\ManagedEncryption" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
     </StandardDirectory>
     
     <!-- The escrow task runs as SYSTEM and reads its config and state from here, so
@@ -53,6 +70,14 @@
       <ComponentRef Id="CryptExe" />
       <ComponentRef Id="DataFolder" />
       <ComponentRef Id="SecretsStore" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </ComponentGroup>
+
+    <!-- Managed Encryption Escrow.exe and its WinUI runtime, beside the CLI. -->
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.AppDir)\**">
+        <Exclude Files="$(var.AppDir)\checkin.exe" />
+      </Files>
     </ComponentGroup>
     
     <CustomAction Id="RegisterScheduledTask" 

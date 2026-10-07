@@ -27,4 +27,10 @@ try {
     # Ignore errors
 }
 
+# Close the app so its files can be replaced
+Get-Process -Name 'Managed Encryption Escrow' -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "Closing Managed Encryption Escrow (PID $($_.Id))..." -ForegroundColor Cyan
+    $_ | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host "Pre-installation checks complete" -ForegroundColor Green

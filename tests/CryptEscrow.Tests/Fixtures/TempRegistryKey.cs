@@ -22,6 +22,7 @@ internal sealed class TempRegistryKey : IDisposable
     private readonly SecretStore.Locations? _previousLocations;
     private readonly Func<string, string?>? _previousEnvReader;
     private readonly Action<string>? _previousEnvClearer;
+    private readonly Action<string>? _previousSettingsRemover;
 
     public TempRegistryKey()
     {
@@ -49,6 +50,12 @@ internal sealed class TempRegistryKey : IDisposable
         _previousEnvClearer = SecretStore.MachineEnvironmentClearer;
         SecretStore.MachineEnvironmentReader = name => MachineEnvironment.TryGetValue(name, out var v) ? v : null;
         SecretStore.MachineEnvironmentClearer = name => MachineEnvironment.Remove(name);
+        _previousSettingsRemover = ConfigService.SettingsRemoverOverride;
+        ConfigService.SettingsRemoverOverride = name =>
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(_settings, writable: true);
+            key?.DeleteValue(name, throwOnMissingValue: false);
+        };
     }
 
     public string Root => _root;
@@ -127,6 +134,7 @@ internal sealed class TempRegistryKey : IDisposable
         SecretStore.LocationsOverride = _previousLocations;
         SecretStore.MachineEnvironmentReader = _previousEnvReader;
         SecretStore.MachineEnvironmentClearer = _previousEnvClearer;
+        ConfigService.SettingsRemoverOverride = _previousSettingsRemover;
         try
         {
             Registry.CurrentUser.DeleteSubKeyTree(_root, throwOnMissingSubKey: false);

@@ -82,6 +82,7 @@ public class ConfigService
     internal static Func<string, string?>? PolicyReaderOverride { get; set; }
     internal static Func<string, string?>? SettingsReaderOverride { get; set; }
     internal static Action<string, string>? SettingsWriterOverride { get; set; }
+    internal static Action<string>? SettingsRemoverOverride { get; set; }
 
     // Test seam: replaces the ACL check on files under ProgramData. Returns null when
     // the file is trusted, otherwise the reason it is not.
@@ -620,6 +621,34 @@ public class ConfigService
 
         if (GetPolicyValue(valueName) is not null)
             Log.Warning("{ValueName} is also set by policy, and policy takes precedence", valueName);
+    }
+
+    /// <summary>
+    /// Removes one value from the machine settings key, so the setting falls back to the
+    /// layers below it. Needs an elevated process.
+    /// </summary>
+    public static void ClearValue(string valueName)
+    {
+        if (!SettableKeys.Values.Contains(valueName, StringComparer.OrdinalIgnoreCase))
+            throw new ArgumentException($"Unknown setting: {valueName}");
+
+        if (SecretStore.IsSecret(valueName))
+        {
+            if (SecretStore.IsSetByPolicy(valueName))
+                throw new InvalidOperationException($"{valueName} is managed by policy");
+            SecretStore.Write(valueName, null);
+            return;
+        }
+
+        if (SettingsRemoverOverride is { } remover)
+        {
+            remover(valueName);
+            return;
+        }
+
+        using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+        using var settings = baseKey.OpenSubKey(SettingsKeyPath, writable: true);
+        settings?.DeleteValue(valueName, throwOnMissingValue: false);
     }
 
     // -------------------------------------------------------------- state files

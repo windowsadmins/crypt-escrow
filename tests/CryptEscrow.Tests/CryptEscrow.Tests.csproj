@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CryptEscrow\CryptEscrow.csproj" />
+    <ProjectReference Include="..\..\src\CryptEscrow.Core\CryptEscrow.Core.csproj" />
   </ItemGroup>
 
 </Project>

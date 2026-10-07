@@ -413,6 +413,17 @@ if ($Build) {
             $filesToSign.Add($destPath)
             
             Write-Log "Built: $arch\checkin.exe ($('{0:N2}' -f ($builtExe.Length / 1MB)) MB)" "SUCCESS"
+
+            # Managed Encryption Escrow.exe, installed beside checkin.exe
+            $appDir = Join-Path $archDir "app"
+            try {
+                & (Join-Path $rootPath "buildpp\Publish-App.ps1") -Arch $arch -OutputDir $appDir -Version $version
+            } catch {
+                Write-Log "Failed to publish the app for ${rid}: $_" "ERROR"
+                exit 1
+            }
+            $filesToSign.Add((Join-Path $appDir "Managed Encryption Escrow.exe"))
+            Write-Log "Built: $archpp\Managed Encryption Escrow.exe" "SUCCESS"
         } else {
             Write-Log "Could not find checkin.exe in publish output for $rid" "ERROR"
             exit 1
@@ -485,6 +496,7 @@ if ($Msi) {
                     "-p:Platform=$msiArch"
                     "-p:ProductVersion=$semanticVersion"
                     "-p:BinDir=$fullMsiTempDir"
+                    "-p:AppDir=$(Join-Path $distDir "$msiArchpp")"
                     "-p:OutputName=Crypt-$msiArch"
                     "--configuration", "Release"
                     "--nologo"
@@ -609,6 +621,12 @@ if ($Pkg) {
         $payloadDir = Join-Path $pkgTempDir "payload"
         New-Item -ItemType Directory -Path $payloadDir -Force | Out-Null
         Copy-Item $cryptExe -Destination $payloadDir -Force
+        $appDir = Join-Path $archDir "app"
+        if (Test-Path $appDir) {
+            Copy-Item (Join-Path $appDir '*') -Destination $payloadDir -Recurse -Force
+        } else {
+            Write-Log "App not found at $appDir - .pkg will contain the CLI only" "WARNING"
+        }
         
         # Create scripts
         $scriptsDir = Join-Path $pkgTempDir "scripts"
@@ -621,6 +639,10 @@ if ($Pkg) {
         $preinstallTemplate = Get-Content "build\pkg\preinstall.ps1" -Raw
         $preinstallContent = $preinstallTemplate -replace '\{\{VERSION\}\}', $timestamp
         $preinstallContent | Set-Content (Join-Path $scriptsDir "preinstall.ps1") -Encoding UTF8
+
+        $uninstallTemplate = Get-Content "build\pkg\uninstall.ps1" -Raw
+        $uninstallContent = $uninstallTemplate -replace '\{\{VERSION\}\}', $timestamp
+        $uninstallContent | Set-Content (Join-Path $scriptsDir "uninstall.ps1") -Encoding UTF8
         
         # Create build-info.yaml
         $buildInfoTemplate = Get-Content "build\pkg\build-info.yaml" -Raw
@@ -693,6 +715,9 @@ installs:
   - type: file
     path: 'C:\Program Files\Crypt\checkin.exe'
     md5checksum: '$cryptHash'
+    version: '$timestamp'
+  - type: file
+    path: 'C:\Program Files\Crypt\Managed Encryption Escrow.exe'
     version: '$timestamp'
 preinstall_script: |
   # Set Crypt Server URL before installation
