@@ -639,6 +639,10 @@ if ($Pkg) {
         $preinstallTemplate = Get-Content "build\pkg\preinstall.ps1" -Raw
         $preinstallContent = $preinstallTemplate -replace '\{\{VERSION\}\}', $timestamp
         $preinstallContent | Set-Content (Join-Path $scriptsDir "preinstall.ps1") -Encoding UTF8
+
+        $uninstallTemplate = Get-Content "build\pkg\uninstall.ps1" -Raw
+        $uninstallContent = $uninstallTemplate -replace '\{\{VERSION\}\}', $timestamp
+        $uninstallContent | Set-Content (Join-Path $scriptsDir "uninstall.ps1") -Encoding UTF8
         
         # Create build-info.yaml
         $buildInfoTemplate = Get-Content "build\pkg\build-info.yaml" -Raw

@@ -113,6 +113,10 @@ jobs:
               -replace '\{\{VERSION\}\}', $version |
               Set-Content "$stagingDir/scripts/postinstall.ps1" -Encoding UTF8
 
+            (Get-Content "build/pkg/uninstall.ps1" -Raw) `
+              -replace '\{\{VERSION\}\}', $version |
+              Set-Content "$stagingDir/scripts/uninstall.ps1" -Encoding UTF8
+
             Write-Host "Building MSI for $arch..."
             & .\tools\cimipkg.exe --verbose $stagingDir
             if ($LASTEXITCODE -ne 0) { throw "cimipkg MSI build failed for $arch" }
