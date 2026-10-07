@@ -78,8 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The app's Prefs header shows the file version stamped from the release tag,
-  not the time the app was built.
+- The app's Prefs header shows the version stamped from the release tag, in
+  the tag's zero-padded form, not the time the app was built.
 
 ## [1.2.0] - 2026-04-11
 
