@@ -76,6 +76,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The unused `scripts/postinstall.ps1`, an outdated copy of
   `build/pkg/postinstall.ps1`.
 
+### Fixed
+
+- The app's Prefs header shows the version stamped from the release tag, in
+  the tag's zero-padded form, not the time the app was built.
+
 ## [1.2.0] - 2026-04-11
 
 Rollup of four PRs merged on the same day, covering a major mTLS

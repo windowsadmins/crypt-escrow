@@ -46,9 +46,11 @@ public partial class PrefsViewModel : ObservableObject
 
     public string VersionDisplay => $"Version {AppVersion}";
 
+    // The version the release stamps from its tag, zero-padded as the tag is; the
+    // "+<commit>" the SDK appends is dropped.
     public static string AppVersion =>
-        typeof(PrefsViewModel).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-            .FirstOrDefault(a => a.Key == "BuildTimestamp")?.Value
+        typeof(PrefsViewModel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            .Split('+')[0]
         ?? typeof(PrefsViewModel).Assembly.GetName().Version?.ToString()
         ?? "unknown";
 
