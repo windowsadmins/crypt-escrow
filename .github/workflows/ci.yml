@@ -1,8 +1,8 @@
 name: CI
 
 on:
+  # Every pull request, so a PR stacked on another branch is built and tested too.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
