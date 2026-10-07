@@ -46,9 +46,9 @@ public partial class PrefsViewModel : ObservableObject
 
     public string VersionDisplay => $"Version {AppVersion}";
 
+    // The file version the release stamps from its tag, the same one the installed files carry.
     public static string AppVersion =>
-        typeof(PrefsViewModel).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-            .FirstOrDefault(a => a.Key == "BuildTimestamp")?.Value
+        typeof(PrefsViewModel).Assembly.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version
         ?? typeof(PrefsViewModel).Assembly.GetName().Version?.ToString()
         ?? "unknown";
 
