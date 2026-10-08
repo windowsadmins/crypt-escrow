@@ -26,3 +26,6 @@ Thumbs.db
 
 # Worktrees
 /.worktrees/
+
+# cimipkg for local MSI builds
+/tools/

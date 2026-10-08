@@ -270,27 +270,12 @@ function Get-ProjectVersion {
     return $fallback
 }
 
-function Find-WiXBinPath {
-    # Check for WiX v6 (.NET tool)
-    try {
-        $dotnetWixVersion = & dotnet tool list --global 2>$null | Select-String "^wix\s"
-        if ($dotnetWixVersion) {
-            Write-Log "Found WiX v6 as .NET global tool" "SUCCESS"
-            return "dotnet-tool"
-        }
-    } catch {}
-    
-    # Fallback to WiX v3
-    $possiblePaths = @(
-        "C:\Program Files (x86)\WiX Toolset*\bin\candle.exe",
-        "C:\Program Files\WiX Toolset*\bin\candle.exe"
-    )
-    foreach ($path in $possiblePaths) {
-        $found = Get-ChildItem -Path $path -ErrorAction SilentlyContinue
-        if ($null -ne $found) {
-            return $found[0].Directory.FullName
-        }
-    }
+function Find-Cimipkg {
+    # The same cimipkg the release workflow downloads, from tools\ or PATH.
+    $local = Join-Path $rootPath "tools\cimipkg.exe"
+    if (Test-Path $local) { return $local }
+    $onPath = Get-Command cimipkg -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
     return $null
 }
 
@@ -417,13 +402,13 @@ if ($Build) {
             # Managed Encryption Escrow.exe, installed beside checkin.exe
             $appDir = Join-Path $archDir "app"
             try {
-                & (Join-Path $rootPath "buildpp\Publish-App.ps1") -Arch $arch -OutputDir $appDir -Version $version
+                & (Join-Path $rootPath "build\app\Publish-App.ps1") -Arch $arch -OutputDir $appDir -Version $version
             } catch {
                 Write-Log "Failed to publish the app for ${rid}: $_" "ERROR"
                 exit 1
             }
             $filesToSign.Add((Join-Path $appDir "Managed Encryption Escrow.exe"))
-            Write-Log "Built: $archpp\Managed Encryption Escrow.exe" "SUCCESS"
+            Write-Log "Built: $arch\app\Managed Encryption Escrow.exe" "SUCCESS"
         } else {
             Write-Log "Could not find checkin.exe in publish output for $rid" "ERROR"
             exit 1
@@ -454,88 +439,62 @@ if (-not (Test-Path $releaseDir)) {
     New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 }
 
-# MSI Package
+# MSI Package (built by cimipkg, the same way as the release workflow)
 if ($Msi) {
-    Write-Log "Building MSI packages with WiX for x64 and arm64..." "INFO"
-    
-    # Check for WiX
-    $wixBinPath = Find-WiXBinPath
-    if (-not $wixBinPath) {
-        Write-Log "WiX Toolset not found. Install with: dotnet tool install --global wix" "ERROR"
+    Write-Log "Building MSI packages with cimipkg for x64 and arm64..." "INFO"
+
+    $cimipkg = Find-Cimipkg
+    if (-not $cimipkg) {
+        Write-Log "cimipkg not found. Put cimipkg.exe in tools\ or on PATH (gh release download --repo windowsadmins/cimian-pkg --pattern cimipkg-win-x64.zip)." "ERROR"
         exit 1
     }
-    
-    $useWixV6 = ($wixBinPath -eq "dotnet-tool")
+
     $timestamp = Get-Date -Format "yyyy.MM.dd.HHmm"
-    $semanticVersion = Get-ProjectVersion -ProjectPath $projectPath
-    
+
     $msiArchs = @("x64", "arm64")
     foreach ($msiArch in $msiArchs) {
-        $msiTempDir = "release\msi_$msiArch"
-        if (Test-Path $msiTempDir) { Remove-Item -Path "$msiTempDir\*" -Recurse -Force }
-        else { New-Item -ItemType Directory -Path $msiTempDir | Out-Null }
-        
-        # Copy binaries for this arch
-        Write-Log "Preparing $msiArch binaries for MSI..." "INFO"
-        Get-ChildItem -Path "dist\$msiArch\*.exe" | ForEach-Object {
-            Copy-Item $_.FullName $msiTempDir -Force
+        $stagingDir = "release\msi_$msiArch"
+        if (Test-Path $stagingDir) { Remove-Item $stagingDir -Recurse -Force }
+        New-Item -ItemType Directory -Path "$stagingDir\payload" -Force | Out-Null
+        New-Item -ItemType Directory -Path "$stagingDir\scripts" -Force | Out-Null
+
+        Write-Log "Preparing $msiArch payload for MSI..." "INFO"
+        Copy-Item "dist\$msiArch\checkin.exe" "$stagingDir\payload\" -Force
+        if (Test-Path "dist\$msiArch\app") {
+            Copy-Item "dist\$msiArch\app\*" "$stagingDir\payload\" -Recurse -Force
         }
-        
-        # Build MSI
+
+        (Get-Content "build\pkg\build-info.yaml" -Raw) `
+            -replace '\{\{VERSION\}\}', $timestamp `
+            -replace '\{\{ARCHITECTURE\}\}', $msiArch `
+            -replace '\$\{PACKAGE_ID_PREFIX\}', 'com.github.windowsadmins' |
+            Set-Content "$stagingDir\build-info.yaml" -Encoding UTF8
+        foreach ($script in @("preinstall.ps1", "postinstall.ps1", "uninstall.ps1")) {
+            (Get-Content "build\pkg\$script" -Raw) -replace '\{\{VERSION\}\}', $timestamp |
+                Set-Content "$stagingDir\scripts\$script" -Encoding UTF8
+        }
+
         $msiOutput = "release\Crypt-$msiArch-$timestamp.msi"
-        
         try {
-            if ($useWixV6) {
-                Write-Log "Building MSI with WiX v6 for $msiArch..." "INFO"
-                $wixProjPath = "build\msi\Crypt.wixproj"
-                $fullMsiTempDir = Join-Path $rootPath $msiTempDir
-                
-                $buildArgs = @(
-                    "build"
-                    $wixProjPath
-                    "-p:Platform=$msiArch"
-                    "-p:ProductVersion=$semanticVersion"
-                    "-p:BinDir=$fullMsiTempDir"
-                    "-p:AppDir=$(Join-Path $distDir "$msiArchpp")"
-                    "-p:OutputName=Crypt-$msiArch"
-                    "--configuration", "Release"
-                    "--nologo"
-                    "--verbosity", "minimal"
-                )
-                
-                & dotnet @buildArgs
-                if ($LASTEXITCODE -ne 0) {
-                    throw "WiX v6 build failed for $msiArch"
-                }
-                
-                # Find output MSI
-                $builtMsi = "build\msi\bin\$msiArch\Release\Crypt-$msiArch.msi"
-                if (Test-Path $builtMsi) {
-                    Move-Item $builtMsi $msiOutput -Force
-                } else {
-                    throw "MSI output not found at $builtMsi"
-                }
-            }
-            
+            & $cimipkg --verbose $stagingDir
+            if ($LASTEXITCODE -ne 0) { throw "cimipkg MSI build failed for $msiArch" }
+
+            $builtMsi = Get-ChildItem "$stagingDir\build\*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $builtMsi) { throw "MSI output not found for $msiArch" }
+            Move-Item $builtMsi.FullName $msiOutput -Force
             Write-Log "MSI package created: $msiOutput" "SUCCESS"
-            
-            # Sign MSI if signing enabled
+
             if ($Sign) {
                 Write-Log "Signing MSI: $(Split-Path $msiOutput -Leaf)" "INFO"
                 Invoke-CodeSign -TargetFile $msiOutput -CertThumbprint $Thumbprint -CertName $CertificateName
             }
-            
-            [System.GC]::Collect()
-            [System.GC]::WaitForPendingFinalizers()
-            Start-Sleep -Seconds 2
         }
         catch {
-            $errorMsg = "Failed to build MSI for ${msiArch}: $($_.Exception.Message)"
-            Write-Log $errorMsg "ERROR"
+            Write-Log "Failed to build MSI for ${msiArch}: $($_.Exception.Message)" "ERROR"
             exit 1
         }
         finally {
-            Remove-Item -Path "$msiTempDir\*" -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item $stagingDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }
