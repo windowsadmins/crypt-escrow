@@ -160,6 +160,12 @@ jobs:
             Compress-Archive -Path "$zipRoot/*" -DestinationPath "release/checkin-$arch.zip" -Force
           }
 
+          # The policy template: Crypt.admx beside its en-US\Crypt.adml, as PolicyDefinitions lays them out.
+          foreach ($required in "resources/Crypt.admx", "resources/en-US/Crypt.adml") {
+            if (-not (Test-Path $required)) { throw "$required missing" }
+          }
+          Compress-Archive -Path "resources/*" -DestinationPath "release/Crypt-PolicyTemplates.zip" -Force
+
       - name: Create GitHub Release
         shell: pwsh
         env:

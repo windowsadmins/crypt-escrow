@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- ADMX policy template, `resources/Crypt.admx` with `resources/en-US/Crypt.adml`,
+  covering every setting under Managed Encryption (Crypt), grouped like the
+  Prefs tab. It works with Group Policy, Intune Import ADMX and ADMX ingestion
+  (app name `Crypt`, setting type `Policy`). Releases attach both files as
+  `Crypt-PolicyTemplates.zip`.
 - Machine settings key `HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings`,
   read in the 64-bit registry view.
 - Policy support for every setting the tool reads, including

@@ -1,6 +1,6 @@
 # Intune CSP/OMA-URI Configuration for CryptEscrow
 
-This document provides guidance for deploying CryptEscrow configuration via Microsoft Intune using CSP (Configuration Service Provider) and OMA-URI registry settings.
+This document provides guidance for deploying CryptEscrow configuration with the bundled ADMX policy template, through Microsoft Intune or Group Policy.
 
 ## Overview
 
@@ -20,7 +20,7 @@ Environment variables never override policy. A policy value that cannot be parse
 
 ## Registry Paths
 
-CryptEscrow checks both standard Group Policy and MDM paths:
+CryptEscrow reads policy from the standard Group Policy path, which is where the ADMX writes, whether it is applied by Group Policy or ingested by Intune. It then reads the PolicyManager path, for values written there directly:
 
 ### Standard Group Policy Path
 ```
@@ -61,145 +61,135 @@ HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\Crypt~Policy~ManagedEncrypt
 
 The same value names are read from the machine settings key, `HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings`.
 
+## Policy template (ADMX)
+
+The repository ships an administrative template that covers every setting:
+
+- `resources/Crypt.admx`
+- `resources/en-US/Crypt.adml`
+
+Each release also attaches both files as `Crypt-PolicyTemplates.zip`.
+
+Every policy writes to `HKLM\SOFTWARE\Policies\Crypt\ManagedEncryption`, under the value name in the table above. On/off settings write `REG_DWORD` 1 (Enabled) or 0 (Disabled), numbers write `REG_DWORD`, and text and choice settings write `REG_SZ`. A policy that is Not Configured writes nothing, so the machine setting or the default applies. The policies sit under **Managed Encryption (Crypt)**, in the same four groups the app's Prefs tab uses: Connection, Escrow, Authentication and Logging. Any setting a policy sets is locked in the Prefs tab.
+
+`ValidateKey`, `SkipUsers` and `PostRunCommand` are read and shown, but this version of the client does not act on them yet.
+
+### API key by policy
+
+The `ApiKey` policy exists for organisations that accept the exposure. The first elevated run of `checkin` moves the key into `HKLM\SOFTWARE\Crypt\ManagedEncryption\Secrets`, which only SYSTEM and Administrators can read, and blanks the policy value. Until that run, the key in the policy key is readable by any user on the device, and it is readable again whenever Group Policy or MDM writes the value back. An MDM-delivered value may also be kept in the device's MDM policy store. Prefer a client certificate where you can.
+
 ## Intune Configuration
 
-### Option 1: Custom OMA-URI (Recommended)
+### Option 1: Import the ADMX (recommended)
 
-Create a custom Device Configuration profile:
+1. In the Intune admin center, go to **Devices** > **Configuration** > **Import ADMX**.
+2. Upload `Crypt.admx` and `en-US/Crypt.adml`.
+3. Create a profile: **Windows 10 and later** > **Templates** > **Imported Administrative templates**, and configure the settings under **Managed Encryption (Crypt)**.
 
-1. Navigate to: **Devices** > **Configuration profiles** > **Create profile**
-2. Platform: **Windows 10 and later**
-3. Profile type: **Templates** > **Custom**
-4. Add OMA-URI settings as shown below
+### Option 2: ADMX ingestion with custom OMA-URIs
 
-#### ServerUrl Configuration
+Create a **Custom** profile for **Windows 10 and later**. The first row ingests the template. Its OMA-URI uses the app name `Crypt` and the setting type `Policy`:
 
-- **Name**: Crypt Server URL
-- **OMA-URI**: `./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/ServerUrl`
+- **OMA-URI**: `./Device/Vendor/MSFT/Policy/ConfigOperations/ADMXInstall/Crypt/Policy/CryptAdmx`
 - **Data type**: String
-- **Value**: `https://crypt.example.org`
+- **Value**: the full contents of `Crypt.admx`
 
-#### SkipCertCheck Configuration
+Then add one String row per setting. The category path in each OMA-URI is `ManagedEncryption` followed by the group:
 
-- **Name**: Crypt Skip Certificate Check
-- **OMA-URI**: `./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/SkipCertCheck`
-- **Data type**: String
-- **Value**: `false`
+| Policy | OMA-URI (after `./Device/Vendor/MSFT/Policy/Config/`) | Example value |
+|---|---|---|
+| ServerUrl | `Crypt~Policy~ManagedEncryption~Connection/ServerUrl` | `<enabled/><data id="ServerUrl_Value" value="https://crypt.example.com"/>` |
+| SkipCertCheck | `Crypt~Policy~ManagedEncryption~Connection/SkipCertCheck` | `<enabled/>` or `<disabled/>` |
+| AutoRotate | `Crypt~Policy~ManagedEncryption~Escrow/AutoRotate` | `<enabled/>` or `<disabled/>` |
+| CleanupOldProtectors | `Crypt~Policy~ManagedEncryption~Escrow/CleanupOldProtectors` | `<enabled/>` or `<disabled/>` |
+| ValidateKey | `Crypt~Policy~ManagedEncryption~Escrow/ValidateKey` | `<enabled/>` or `<disabled/>` |
+| KeyEscrowIntervalHours | `Crypt~Policy~ManagedEncryption~Escrow/KeyEscrowIntervalHours` | `<enabled/><data id="KeyEscrowIntervalHours_Value" value="24"/>` |
+| SkipUsers | `Crypt~Policy~ManagedEncryption~Escrow/SkipUsers` | `<enabled/><data id="SkipUsers_Value" value="admin,localadmin"/>` |
+| PostRunCommand | `Crypt~Policy~ManagedEncryption~Escrow/PostRunCommand` | `<enabled/><data id="PostRunCommand_Value" value="shutdown /r /t 300"/>` |
+| ApiKey | `Crypt~Policy~ManagedEncryption~Authentication/ApiKey` | `<enabled/><data id="ApiKey_Value" value="your-api-key"/>` |
+| ApiKeyHeader | `Crypt~Policy~ManagedEncryption~Authentication/ApiKeyHeader` | `<enabled/><data id="ApiKeyHeader_Value" value="X-API-Key"/>` |
+| UseMtls | `Crypt~Policy~ManagedEncryption~Authentication/UseMtls` | `<enabled/>` or `<disabled/>` |
+| CertificateSubject | `Crypt~Policy~ManagedEncryption~Authentication/CertificateSubject` | `<enabled/><data id="CertificateSubject_Value" value="crypt-client.example.com"/>` |
+| CertificateThumbprint | `Crypt~Policy~ManagedEncryption~Authentication/CertificateThumbprint` | `<enabled/><data id="CertificateThumbprint_Value" value="0123456789ABCDEF0123456789ABCDEF01234567"/>` |
+| CertificateStoreLocation | `Crypt~Policy~ManagedEncryption~Authentication/CertificateStoreLocation` | `<enabled/><data id="CertificateStoreLocation_Value" value="LocalMachine"/>` |
+| CertificateStoreName | `Crypt~Policy~ManagedEncryption~Authentication/CertificateStoreName` | `<enabled/><data id="CertificateStoreName_Value" value="My"/>` |
+| PfxPath | `Crypt~Policy~ManagedEncryption~Authentication/PfxPath` | `<enabled/><data id="PfxPath_Value" value="C:\ProgramData\ManagedEncryption\client.pfx"/>` |
+| PfxPasswordCredential | `Crypt~Policy~ManagedEncryption~Authentication/PfxPasswordCredential` | `<enabled/><data id="PfxPasswordCredential_Value" value="CryptPfxPassword"/>` |
+| ClientCertPath | `Crypt~Policy~ManagedEncryption~Authentication/ClientCertPath` | `<enabled/><data id="ClientCertPath_Value" value="C:\ProgramData\ManagedEncryption\client.crt"/>` |
+| ClientKeyPath | `Crypt~Policy~ManagedEncryption~Authentication/ClientKeyPath` | `<enabled/><data id="ClientKeyPath_Value" value="C:\ProgramData\ManagedEncryption\client.key"/>` |
+| LogLevel | `Crypt~Policy~ManagedEncryption~Logging/LogLevel` | `<enabled/><data id="LogLevel_Value" value="INFO"/>` |
+| LogFilePath | `Crypt~Policy~ManagedEncryption~Logging/LogFilePath` | `<enabled/><data id="LogFilePath_Value" value="C:\ProgramData\ManagedEncryption\logs\crypt-escrow.log"/>` |
+| LogRetainedDays | `Crypt~Policy~ManagedEncryption~Logging/LogRetainedDays` | `<enabled/><data id="LogRetainedDays_Value" value="30"/>` |
 
-#### AutoRotate Configuration
+On/off policies take `<enabled/>` or `<disabled/>` with no data. To pick a choice, the `value` is the choice itself, for example `CurrentUser` or `DEBUG`.
 
-- **Name**: Crypt Auto-Rotate Keys
-- **OMA-URI**: `./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/AutoRotate`
-- **Data type**: String
-- **Value**: `true`
+Ingested policies are written to `HKLM\SOFTWARE\Policies\Crypt\ManagedEncryption`, the first path the client reads. Their state in the PolicyManager store is kept under the group's own key, such as `Crypt~Policy~ManagedEncryption~Connection`, not under `Crypt~Policy~ManagedEncryption`.
 
-#### CleanupOldProtectors Configuration
-
-- **Name**: Crypt Cleanup Old Protectors
-- **OMA-URI**: `./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/CleanupOldProtectors`
-- **Data type**: String
-- **Value**: `true`
-
-#### KeyEscrowIntervalHours Configuration
-
-- **Name**: Crypt Key Escrow Interval
-- **OMA-URI**: `./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/KeyEscrowIntervalHours`
-- **Data type**: Integer
-- **Value**: `24`
-
-#### ValidateKey Configuration
-
-- **Name**: Crypt Validate Key
-- **OMA-URI**: `./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/ValidateKey`
-- **Data type**: String
-- **Value**: `true`
-
-#### SkipUsers Configuration
-
-- **Name**: Crypt Skip Users
-- **OMA-URI**: `./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/SkipUsers`
-- **Data type**: String
-- **Value**: `admin,localadmin`
-
-### Option 2: PowerShell Script
+### Option 3: PowerShell Script
 
 Deploy via Intune PowerShell script:
 
 ```powershell
-# Set Crypt enterprise configuration
 $regPath = 'HKLM:\SOFTWARE\Policies\Crypt\ManagedEncryption'
-
-# Create registry key if it doesn't exist
 if (-not (Test-Path $regPath)) {
     New-Item -Path $regPath -Force | Out-Null
 }
-
-# Set configuration values
 Set-ItemProperty -Path $regPath -Name 'ServerUrl' -Value 'https://crypt.example.org' -Type String
-Set-ItemProperty -Path $regPath -Name 'SkipCertCheck' -Value 'false' -Type String
-Set-ItemProperty -Path $regPath -Name 'AutoRotate' -Value 'true' -Type String
-Set-ItemProperty -Path $regPath -Name 'CleanupOldProtectors' -Value 'true' -Type String
-Set-ItemProperty -Path $regPath -Name 'KeyEscrowIntervalHours' -Value '24' -Type String
-Set-ItemProperty -Path $regPath -Name 'ValidateKey' -Value 'true' -Type String
-
-Write-Host "CryptEscrow registry configuration completed successfully"
+Set-ItemProperty -Path $regPath -Name 'SkipCertCheck' -Value 0 -Type DWord
+Set-ItemProperty -Path $regPath -Name 'AutoRotate' -Value 1 -Type DWord
+Set-ItemProperty -Path $regPath -Name 'CleanupOldProtectors' -Value 1 -Type DWord
+Set-ItemProperty -Path $regPath -Name 'KeyEscrowIntervalHours' -Value 24 -Type DWord
 ```
 
 Deploy as:
 - Script settings: **Run this script using the logged on credentials**: No (run as SYSTEM)
 - **Run script in 64-bit PowerShell**: Yes
 
-### Option 3: Group Policy (On-Premises AD)
+### Option 4: Group Policy (On-Premises AD)
 
-For hybrid environments with on-premises Active Directory:
-
-1. Create a Group Policy Object
-2. Navigate to: **Computer Configuration** > **Preferences** > **Windows Settings** > **Registry**
-3. Add registry items for each configuration value under:
-   - Hive: `HKEY_LOCAL_MACHINE`
-   - Key path: `SOFTWARE\Policies\Crypt\ManagedEncryption`
-   - Value name: (as per table above)
-   - Value type: REG_SZ or REG_DWORD
-   - Value data: (as per table above)
+1. Copy `Crypt.admx` to the central store, `\\<domain>\SYSVOL\<domain>\Policies\PolicyDefinitions`, and `en-US\Crypt.adml` to its `en-US` folder. For local Group Policy, use `C:\Windows\PolicyDefinitions` instead.
+2. In a Group Policy Object, go to **Computer Configuration** > **Policies** > **Administrative Templates** > **Managed Encryption (Crypt)**.
 
 ## Verification
 
 ### Check Registry Configuration
 
-```powershell
-# View all CryptEscrow registry settings
-Get-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Crypt\ManagedEncryption' -ErrorAction SilentlyContinue
+List the values policy has written:
 
-# Check MDM path
-Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Crypt~Policy~ManagedEncryption' -ErrorAction SilentlyContinue
+```powershell
+Get-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Crypt\ManagedEncryption' -ErrorAction SilentlyContinue
 ```
 
 ### Test Configuration
 
-```powershell
-# Run in check mode to see current configuration
-& 'C:\Program Files\Crypt\checkin.exe' check
+Show every effective setting and the layer it came from:
 
-# Run with verbose logging to see config source
+```powershell
+& 'C:\Program Files\Crypt\checkin.exe' config show
+```
+
+Run an escrow with verbose logging:
+
+```powershell
 & 'C:\Program Files\Crypt\checkin.exe' escrow --verbose
 ```
 
 ### View Logs
 
-Configuration source is logged when settings are loaded:
+Each day's log is in its own folder under `C:\ProgramData\ManagedEncryption\logs`. Open the newest:
 
 ```powershell
-Get-Content 'C:\ProgramData\ManagedEncryption\logs\crypt-escrow.log' | Select-String 'registry'
+Get-ChildItem 'C:\ProgramData\ManagedEncryption\logs' -Recurse -Filter 'crypt-escrow.log' | Sort-Object LastWriteTime | Select-Object -Last 1 | Get-Content
 ```
 
 ## Best Practices
 
-1. **Use OMA-URI for cloud-only environments** - Most reliable for Intune-managed devices
+1. **Use the ADMX** - Imported or ingested in Intune, or in the Group Policy central store
 2. **Set minimal required configuration** - Only configure ServerUrl if using defaults for other settings
 3. **Test in pilot group first** - Deploy to test devices before organization-wide rollout
 4. **Monitor compliance** - Use Intune proactive remediation to verify key escrow status
 5. **Document your settings** - Keep track of configured values for troubleshooting
-6. **Use string values** - For boolean settings, use "true"/"false" strings rather than DWORD for clarity
+6. **Prefer REG_DWORD for on/off settings** - The ADMX writes 1 or 0; `true`/`false` strings are also accepted
 7. **Avoid mixing config sources** - Choose either registry or YAML files, not both
 
 ## Troubleshooting
@@ -229,58 +219,10 @@ Remember the configuration hierarchy:
 
 If a setting isn't being applied, check higher-priority sources first.
 
-## Example: Complete Intune Profile
-
-Create a JSON file for bulk import:
-
-```json
-{
-  "displayName": "CryptEscrow - BitLocker Key Escrow Configuration",
-  "description": "Enterprise configuration for CryptEscrow BitLocker key escrow to crypt.example.org",
-  "omaSettings": [
-    {
-      "@odata.type": "#microsoft.graph.omaSettingString",
-      "displayName": "Crypt Server URL",
-      "omaUri": "./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/ServerUrl",
-      "value": "https://crypt.example.org"
-    },
-    {
-      "@odata.type": "#microsoft.graph.omaSettingString",
-      "displayName": "Crypt Skip Certificate Check",
-      "omaUri": "./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/SkipCertCheck",
-      "value": "false"
-    },
-    {
-      "@odata.type": "#microsoft.graph.omaSettingString",
-      "displayName": "Crypt Auto-Rotate Keys",
-      "omaUri": "./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/AutoRotate",
-      "value": "true"
-    },
-    {
-      "@odata.type": "#microsoft.graph.omaSettingString",
-      "displayName": "Crypt Cleanup Old Protectors",
-      "omaUri": "./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/CleanupOldProtectors",
-      "value": "true"
-    },
-    {
-      "@odata.type": "#microsoft.graph.omaSettingInteger",
-      "displayName": "Crypt Key Escrow Interval Hours",
-      "omaUri": "./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/KeyEscrowIntervalHours",
-      "value": 24
-    },
-    {
-      "@odata.type": "#microsoft.graph.omaSettingString",
-      "displayName": "Crypt Validate Key",
-      "omaUri": "./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/ValidateKey",
-      "value": "true"
-    }
-  ]
-}
-```
-
 ## References
 
 - [Microsoft Intune OMA-URI Settings](https://learn.microsoft.com/en-us/mem/intune/configuration/custom-settings-windows-10)
-- [Registry CSP](https://learn.microsoft.com/en-us/windows/client-management/mdm/registry-csp)
+- [Win32 and Desktop Bridge app ADMX policy ingestion](https://learn.microsoft.com/en-us/windows/client-management/win32-and-centennial-app-policy-configuration)
+- [Import custom ADMX and ADML templates into Intune](https://learn.microsoft.com/en-us/mem/intune/configuration/administrative-templates-import-custom)
 - [CryptEscrow Documentation](../README.md)
 - [Crypt Server Project](https://github.com/grahamgilbert/Crypt-Server)
