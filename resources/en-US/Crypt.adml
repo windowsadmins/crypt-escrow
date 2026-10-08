@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Crypt (Managed Encryption Escrow) policy strings, English. Companion to Crypt.admx. -->
+<policyDefinitionResources xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                           revision="1.0"
+                           schemaVersion="1.0"
+                           xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+
+  <displayName>Crypt Managed Encryption</displayName>
+  <description>Settings for the Crypt BitLocker recovery key escrow client</description>
+
+  <resources>
+    <stringTable>
+      <string id="SUPPORTED_Windows10">At least Windows 10</string>
+
+      <string id="Cat_ManagedEncryption">Managed Encryption (Crypt)</string>
+      <string id="Cat_ManagedEncryption_Help">Settings for the Crypt client, which escrows BitLocker recovery keys to a Crypt Server. Policy is read from HKLM\SOFTWARE\Policies\Crypt\ManagedEncryption and wins over the machine settings in HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings, the CRYPT_* environment variables, config.yaml and the built-in defaults. A setting set by policy is locked in the Managed Encryption Escrow app's Prefs tab.</string>
+      <string id="Cat_Connection">Connection</string>
+      <string id="Cat_Escrow">Escrow</string>
+      <string id="Cat_Authentication">Authentication</string>
+      <string id="Cat_Logging">Logging</string>
+
+      <!-- Connection -->
+      <string id="ServerUrl">Crypt Server URL</string>
+      <string id="ServerUrl_Help">The address of the Crypt Server that recovery keys are escrowed to, for example https://crypt.example.com.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="SkipCertCheck">Skip TLS certificate checks</string>
+      <string id="SkipCertCheck_Help">When enabled, the client does not verify the server's TLS certificate. Use this only for testing against a server with a self-signed certificate.
+
+Default: Disabled (certificates are verified).
+
+Enabled writes 1 and Disabled writes 0, and either one locks the setting in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+
+      <!-- Escrow -->
+      <string id="AutoRotate">Rotate the key when the server asks</string>
+      <string id="AutoRotate_Help">When enabled, the client rotates the BitLocker recovery key when the Crypt Server requests it, and escrows the new key.
+
+Default: Enabled.
+
+Enabled writes 1 and Disabled writes 0, and either one locks the setting in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="CleanupOldProtectors">Remove old recovery keys after rotation</string>
+      <string id="CleanupOldProtectors_Help">When enabled, the old recovery password protectors are removed once a rotated key has been escrowed, so only the escrowed key can unlock the volume.
+
+Default: Enabled.
+
+Enabled writes 1 and Disabled writes 0, and either one locks the setting in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="ValidateKey">Validate the key locally before escrow</string>
+      <string id="ValidateKey_Help">When enabled, the recovery key is validated locally before it is escrowed. This version of the client reads and shows this setting but does not act on it yet; it is kept for parity with Crypt for macOS.
+
+Default: Enabled.
+
+Enabled writes 1 and Disabled writes 0, and either one locks the setting in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="KeyEscrowIntervalHours">Escrow interval (hours)</string>
+      <string id="KeyEscrowIntervalHours_Help">How many hours must pass after a successful escrow before the client escrows again. 0 escrows on every run.
+
+Default: 1.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="SkipUsers">Users to skip</string>
+      <string id="SkipUsers_Help">A comma-separated list of user names for whom escrow enforcement is skipped, for example admin,localadmin. This version of the client reads and shows this setting but does not act on it yet; it is kept for parity with Crypt for macOS.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="PostRunCommand">Command to run after an error</string>
+      <string id="PostRunCommand_Help">A command the client runs after an escrow error, for example a notification or a scheduled restart. This version of the client reads and shows this setting but does not act on it yet; it is kept for parity with Crypt for macOS.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+
+      <!-- Authentication -->
+      <string id="ApiKey">API key</string>
+      <string id="ApiKey_Help">The API key the client sends to the Crypt Server.
+
+The first elevated run of the client moves the key from this policy value into the protected store, HKLM\SOFTWARE\Crypt\ManagedEncryption\Secrets, which only SYSTEM and Administrators can read, and blanks the policy value. Until that run, the key in HKLM\SOFTWARE\Policies\Crypt\ManagedEncryption is readable by any user on the device, and it is readable again whenever Group Policy or MDM writes the value back, until the next elevated run moves it. An MDM-delivered value may also be kept in the device's MDM policy store.
+
+Where you can, use a client certificate (mTLS) instead, or deliver the key in a way that does not leave it in a readable policy value.
+
+While this policy is enabled the API key cannot be changed in the app's Prefs tab, which never shows the key itself.</string>
+      <string id="ApiKeyHeader">API key header</string>
+      <string id="ApiKeyHeader_Help">The HTTP header that carries the API key.
+
+Default: X-API-Key.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="UseMtls">Use a client certificate (mTLS)</string>
+      <string id="UseMtls_Help">When enabled, the client authenticates to the Crypt Server with a client certificate. Identify the certificate with the certificate store policies (subject or thumbprint), a PFX file, or a PEM certificate and key file.
+
+Default: Disabled.
+
+Enabled writes 1 and Disabled writes 0, and either one locks the setting in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="CertificateSubject">Certificate subject</string>
+      <string id="CertificateSubject_Help">The subject of the client certificate to use from the certificate store, for example crypt-client.example.com.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="CertificateThumbprint">Certificate thumbprint</string>
+      <string id="CertificateThumbprint_Help">The thumbprint of the client certificate to use from the certificate store.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="CertificateStoreLocation">Certificate store location</string>
+      <string id="CertificateStoreLocation_Help">The certificate store location that holds the client certificate.
+
+Default: LocalMachine.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="CertificateStoreLocation_LocalMachine">Local machine (LocalMachine)</string>
+      <string id="CertificateStoreLocation_CurrentUser">Current user (CurrentUser)</string>
+      <string id="CertificateStoreName">Certificate store name</string>
+      <string id="CertificateStoreName_Help">The certificate store that holds the client certificate.
+
+Default: My (Personal).
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="PfxPath">PFX file</string>
+      <string id="PfxPath_Help">The path to a PFX file holding the client certificate and its private key, for example C:\ProgramData\ManagedEncryption\client.pfx.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="PfxPasswordCredential">PFX passphrase credential name</string>
+      <string id="PfxPasswordCredential_Help">The name of the Windows Credential Manager entry that holds the PFX passphrase. The passphrase itself stays in Credential Manager, in the account that runs the escrow; this policy only names it.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="ClientCertPath">PEM certificate file</string>
+      <string id="ClientCertPath_Help">The path to a PEM file holding the client certificate. Pair it with the PEM key file policy.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="ClientKeyPath">PEM key file</string>
+      <string id="ClientKeyPath_Help">The path to a PEM file holding the client certificate's private key. Pair it with the PEM certificate file policy.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+
+      <!-- Logging -->
+      <string id="LogLevel">Log level</string>
+      <string id="LogLevel_Help">The lowest level written to the log.
+
+Default: INFO.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="LogLevel_DEBUG">Debug</string>
+      <string id="LogLevel_INFO">Information</string>
+      <string id="LogLevel_WARN">Warning</string>
+      <string id="LogLevel_ERROR">Error</string>
+      <string id="LogFilePath">Log file</string>
+      <string id="LogFilePath_Help">The log file path. Each day's log goes in a dated folder beside the named file, so C:\Logs\crypt.log is written as C:\Logs\2026-10-08\crypt.log. By default logs go under C:\ProgramData\ManagedEncryption\logs.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+      <string id="LogRetainedDays">Days of logs to keep</string>
+      <string id="LogRetainedDays_Help">How many days of logs to keep. Older day directories and log files are removed.
+
+Default: 30.
+
+While this policy is enabled the field is locked in the app's Prefs tab. Not Configured leaves it to the machine setting, then the default.</string>
+    </stringTable>
+
+    <presentationTable>
+      <presentation id="ServerUrl">
+        <textBox refId="ServerUrl_Value">
+          <label>Server URL:</label>
+        </textBox>
+      </presentation>
+      <presentation id="KeyEscrowIntervalHours">
+        <decimalTextBox refId="KeyEscrowIntervalHours_Value" defaultValue="1">Hours:</decimalTextBox>
+      </presentation>
+      <presentation id="SkipUsers">
+        <textBox refId="SkipUsers_Value">
+          <label>User names (comma-separated):</label>
+        </textBox>
+      </presentation>
+      <presentation id="PostRunCommand">
+        <textBox refId="PostRunCommand_Value">
+          <label>Command:</label>
+        </textBox>
+      </presentation>
+      <presentation id="ApiKey">
+        <textBox refId="ApiKey_Value">
+          <label>API key:</label>
+        </textBox>
+      </presentation>
+      <presentation id="ApiKeyHeader">
+        <textBox refId="ApiKeyHeader_Value">
+          <label>Header name:</label>
+          <defaultValue>X-API-Key</defaultValue>
+        </textBox>
+      </presentation>
+      <presentation id="CertificateSubject">
+        <textBox refId="CertificateSubject_Value">
+          <label>Subject:</label>
+        </textBox>
+      </presentation>
+      <presentation id="CertificateThumbprint">
+        <textBox refId="CertificateThumbprint_Value">
+          <label>Thumbprint:</label>
+        </textBox>
+      </presentation>
+      <presentation id="CertificateStoreLocation">
+        <dropdownList refId="CertificateStoreLocation_Value" defaultItem="0" noSort="true">Store location:</dropdownList>
+      </presentation>
+      <presentation id="CertificateStoreName">
+        <textBox refId="CertificateStoreName_Value">
+          <label>Store name:</label>
+          <defaultValue>My</defaultValue>
+        </textBox>
+      </presentation>
+      <presentation id="PfxPath">
+        <textBox refId="PfxPath_Value">
+          <label>PFX path:</label>
+        </textBox>
+      </presentation>
+      <presentation id="PfxPasswordCredential">
+        <textBox refId="PfxPasswordCredential_Value">
+          <label>Credential name:</label>
+        </textBox>
+      </presentation>
+      <presentation id="ClientCertPath">
+        <textBox refId="ClientCertPath_Value">
+          <label>Certificate path:</label>
+        </textBox>
+      </presentation>
+      <presentation id="ClientKeyPath">
+        <textBox refId="ClientKeyPath_Value">
+          <label>Key path:</label>
+        </textBox>
+      </presentation>
+      <presentation id="LogLevel">
+        <dropdownList refId="LogLevel_Value" defaultItem="1" noSort="true">Level:</dropdownList>
+      </presentation>
+      <presentation id="LogFilePath">
+        <textBox refId="LogFilePath_Value">
+          <label>Log file path:</label>
+        </textBox>
+      </presentation>
+      <presentation id="LogRetainedDays">
+        <decimalTextBox refId="LogRetainedDays_Value" defaultValue="30">Days:</decimalTextBox>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

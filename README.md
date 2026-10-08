@@ -308,7 +308,7 @@ Environment variables: `CRYPT_CLIENT_CERT_PATH`, `CRYPT_CLIENT_KEY_PATH`.
 
 ### Registry Configuration (CSP/OMA-URI)
 
-Enterprise policies can be deployed via Intune CSP/OMA-URI to these registry locations:
+Enterprise policies are read from these registry locations:
 
 **Standard Group Policy Path:**
 `HKLM\SOFTWARE\Policies\Crypt\ManagedEncryption`
@@ -336,10 +336,7 @@ Enterprise policies can be deployed via Intune CSP/OMA-URI to these registry loc
 | `ClientCertPath` | String | Path to client certificate PEM file (least preferred file-based mTLS option) |
 | `ClientKeyPath` | String | Path to client private key PEM file (paired with `ClientCertPath`) |
 
-**Intune Custom OMA-URI Example:**
-- OMA-URI: `./Device/Vendor/MSFT/Registry/HKLM/SOFTWARE/Policies/Crypt/ManagedEncryption/ServerUrl`
-- Data type: String
-- Value: `https://crypt.example.com`
+**Policy template:** `resources/Crypt.admx` and `resources/en-US/Crypt.adml` cover every setting, for Group Policy or for Intune (Import ADMX, or ADMX ingestion with custom OMA-URIs). Each release attaches them as `Crypt-PolicyTemplates.zip`. [docs/INTUNE-CSP-CONFIGURATION.md](docs/INTUNE-CSP-CONFIGURATION.md) lists the OMA-URI for each policy.
 
 ## Exit Codes
 

@@ -1,0 +1,356 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Crypt (Managed Encryption Escrow) policy template.
+
+  Every policy writes to HKLM\SOFTWARE\Policies\Crypt\ManagedEncryption.
+  Group Policy: copy Crypt.admx to C:\Windows\PolicyDefinitions and
+  en-US\Crypt.adml to C:\Windows\PolicyDefinitions\en-US.
+  Intune: Devices > Configuration > Import ADMX, or ingest it with the OMA-URIs in
+  docs/INTUNE-CSP-CONFIGURATION.md (app name Crypt, setting type Policy).
+-->
+<policyDefinitions xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   revision="1.0"
+                   schemaVersion="1.0"
+                   xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+
+  <policyNamespaces>
+    <target prefix="crypt" namespace="Crypt.Policies.ManagedEncryption" />
+  </policyNamespaces>
+
+  <resources minRequiredRevision="1.0" />
+
+  <supportedOn>
+    <definitions>
+      <definition name="SUPPORTED_Windows10" displayName="$(string.SUPPORTED_Windows10)" />
+    </definitions>
+  </supportedOn>
+
+  <categories>
+    <category name="ManagedEncryption" displayName="$(string.Cat_ManagedEncryption)" explainText="$(string.Cat_ManagedEncryption_Help)" />
+    <category name="Connection" displayName="$(string.Cat_Connection)">
+      <parentCategory ref="ManagedEncryption" />
+    </category>
+    <category name="Escrow" displayName="$(string.Cat_Escrow)">
+      <parentCategory ref="ManagedEncryption" />
+    </category>
+    <category name="Authentication" displayName="$(string.Cat_Authentication)">
+      <parentCategory ref="ManagedEncryption" />
+    </category>
+    <category name="Logging" displayName="$(string.Cat_Logging)">
+      <parentCategory ref="ManagedEncryption" />
+    </category>
+  </categories>
+
+  <policies>
+    <!-- Connection -->
+
+    <policy name="ServerUrl"
+            class="Machine"
+            displayName="$(string.ServerUrl)"
+            explainText="$(string.ServerUrl_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.ServerUrl)">
+      <parentCategory ref="Connection" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <text id="ServerUrl_Value" valueName="ServerUrl" required="true" maxLength="2048" />
+      </elements>
+    </policy>
+
+    <policy name="SkipCertCheck"
+            class="Machine"
+            displayName="$(string.SkipCertCheck)"
+            explainText="$(string.SkipCertCheck_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            valueName="SkipCertCheck">
+      <parentCategory ref="Connection" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <!-- Escrow -->
+
+    <policy name="AutoRotate"
+            class="Machine"
+            displayName="$(string.AutoRotate)"
+            explainText="$(string.AutoRotate_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            valueName="AutoRotate">
+      <parentCategory ref="Escrow" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="CleanupOldProtectors"
+            class="Machine"
+            displayName="$(string.CleanupOldProtectors)"
+            explainText="$(string.CleanupOldProtectors_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            valueName="CleanupOldProtectors">
+      <parentCategory ref="Escrow" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="ValidateKey"
+            class="Machine"
+            displayName="$(string.ValidateKey)"
+            explainText="$(string.ValidateKey_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            valueName="ValidateKey">
+      <parentCategory ref="Escrow" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="KeyEscrowIntervalHours"
+            class="Machine"
+            displayName="$(string.KeyEscrowIntervalHours)"
+            explainText="$(string.KeyEscrowIntervalHours_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.KeyEscrowIntervalHours)">
+      <parentCategory ref="Escrow" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <decimal id="KeyEscrowIntervalHours_Value" valueName="KeyEscrowIntervalHours" required="true" minValue="0" maxValue="8760" />
+      </elements>
+    </policy>
+
+    <policy name="SkipUsers"
+            class="Machine"
+            displayName="$(string.SkipUsers)"
+            explainText="$(string.SkipUsers_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.SkipUsers)">
+      <parentCategory ref="Escrow" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <text id="SkipUsers_Value" valueName="SkipUsers" required="true" maxLength="2048" />
+      </elements>
+    </policy>
+
+    <policy name="PostRunCommand"
+            class="Machine"
+            displayName="$(string.PostRunCommand)"
+            explainText="$(string.PostRunCommand_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.PostRunCommand)">
+      <parentCategory ref="Escrow" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <text id="PostRunCommand_Value" valueName="PostRunCommand" required="true" maxLength="2048" />
+      </elements>
+    </policy>
+
+    <!-- Authentication -->
+
+    <policy name="ApiKey"
+            class="Machine"
+            displayName="$(string.ApiKey)"
+            explainText="$(string.ApiKey_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.ApiKey)">
+      <parentCategory ref="Authentication" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <text id="ApiKey_Value" valueName="ApiKey" required="true" maxLength="1024" />
+      </elements>
+    </policy>
+
+    <policy name="ApiKeyHeader"
+            class="Machine"
+            displayName="$(string.ApiKeyHeader)"
+            explainText="$(string.ApiKeyHeader_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.ApiKeyHeader)">
+      <parentCategory ref="Authentication" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <text id="ApiKeyHeader_Value" valueName="ApiKeyHeader" required="true" maxLength="256" />
+      </elements>
+    </policy>
+
+    <policy name="UseMtls"
+            class="Machine"
+            displayName="$(string.UseMtls)"
+            explainText="$(string.UseMtls_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            valueName="UseMtls">
+      <parentCategory ref="Authentication" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="CertificateSubject"
+            class="Machine"
+            displayName="$(string.CertificateSubject)"
+            explainText="$(string.CertificateSubject_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.CertificateSubject)">
+      <parentCategory ref="Authentication" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <text id="CertificateSubject_Value" valueName="CertificateSubject" required="true" maxLength="1024" />
+      </elements>
+    </policy>
+
+    <policy name="CertificateThumbprint"
+            class="Machine"
+            displayName="$(string.CertificateThumbprint)"
+            explainText="$(string.CertificateThumbprint_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.CertificateThumbprint)">
+      <parentCategory ref="Authentication" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <text id="CertificateThumbprint_Value" valueName="CertificateThumbprint" required="true" maxLength="128" />
+      </elements>
+    </policy>
+
+    <policy name="CertificateStoreLocation"
+            class="Machine"
+            displayName="$(string.CertificateStoreLocation)"
+            explainText="$(string.CertificateStoreLocation_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.CertificateStoreLocation)">
+      <parentCategory ref="Authentication" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <enum id="CertificateStoreLocation_Value" valueName="CertificateStoreLocation" required="true">
+          <item displayName="$(string.CertificateStoreLocation_LocalMachine)">
+            <value><string>LocalMachine</string></value>
+          </item>
+          <item displayName="$(string.CertificateStoreLocation_CurrentUser)">
+            <value><string>CurrentUser</string></value>
+          </item>
+        </enum>
+      </elements>
+    </policy>
+
+    <policy name="CertificateStoreName"
+            class="Machine"
+            displayName="$(string.CertificateStoreName)"
+            explainText="$(string.CertificateStoreName_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.CertificateStoreName)">
+      <parentCategory ref="Authentication" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <text id="CertificateStoreName_Value" valueName="CertificateStoreName" required="true" maxLength="256" />
+      </elements>
+    </policy>
+
+    <policy name="PfxPath"
+            class="Machine"
+            displayName="$(string.PfxPath)"
+            explainText="$(string.PfxPath_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.PfxPath)">
+      <parentCategory ref="Authentication" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <text id="PfxPath_Value" valueName="PfxPath" required="true" maxLength="1024" />
+      </elements>
+    </policy>
+
+    <policy name="PfxPasswordCredential"
+            class="Machine"
+            displayName="$(string.PfxPasswordCredential)"
+            explainText="$(string.PfxPasswordCredential_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.PfxPasswordCredential)">
+      <parentCategory ref="Authentication" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <text id="PfxPasswordCredential_Value" valueName="PfxPasswordCredential" required="true" maxLength="512" />
+      </elements>
+    </policy>
+
+    <policy name="ClientCertPath"
+            class="Machine"
+            displayName="$(string.ClientCertPath)"
+            explainText="$(string.ClientCertPath_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.ClientCertPath)">
+      <parentCategory ref="Authentication" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <text id="ClientCertPath_Value" valueName="ClientCertPath" required="true" maxLength="1024" />
+      </elements>
+    </policy>
+
+    <policy name="ClientKeyPath"
+            class="Machine"
+            displayName="$(string.ClientKeyPath)"
+            explainText="$(string.ClientKeyPath_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.ClientKeyPath)">
+      <parentCategory ref="Authentication" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <text id="ClientKeyPath_Value" valueName="ClientKeyPath" required="true" maxLength="1024" />
+      </elements>
+    </policy>
+
+    <!-- Logging -->
+
+    <policy name="LogLevel"
+            class="Machine"
+            displayName="$(string.LogLevel)"
+            explainText="$(string.LogLevel_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.LogLevel)">
+      <parentCategory ref="Logging" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <enum id="LogLevel_Value" valueName="LogLevel" required="true">
+          <item displayName="$(string.LogLevel_DEBUG)">
+            <value><string>DEBUG</string></value>
+          </item>
+          <item displayName="$(string.LogLevel_INFO)">
+            <value><string>INFO</string></value>
+          </item>
+          <item displayName="$(string.LogLevel_WARN)">
+            <value><string>WARN</string></value>
+          </item>
+          <item displayName="$(string.LogLevel_ERROR)">
+            <value><string>ERROR</string></value>
+          </item>
+        </enum>
+      </elements>
+    </policy>
+
+    <policy name="LogFilePath"
+            class="Machine"
+            displayName="$(string.LogFilePath)"
+            explainText="$(string.LogFilePath_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.LogFilePath)">
+      <parentCategory ref="Logging" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <text id="LogFilePath_Value" valueName="LogFilePath" required="true" maxLength="1024" />
+      </elements>
+    </policy>
+
+    <policy name="LogRetainedDays"
+            class="Machine"
+            displayName="$(string.LogRetainedDays)"
+            explainText="$(string.LogRetainedDays_Help)"
+            key="SOFTWARE\Policies\Crypt\ManagedEncryption"
+            presentation="$(presentation.LogRetainedDays)">
+      <parentCategory ref="Logging" />
+      <supportedOn ref="SUPPORTED_Windows10" />
+      <elements>
+        <decimal id="LogRetainedDays_Value" valueName="LogRetainedDays" required="true" minValue="1" maxValue="3650" />
+      </elements>
+    </policy>
+
+  </policies>
+</policyDefinitions>
