@@ -34,16 +34,14 @@ public static class ComponentStatusReader
             scheduler.Connect();
             dynamic task = scheduler.GetFolder("\\").GetTask(component.Name);
 
-            int state = task.State;
-            DateTime lastRun = task.LastRunTime;
-            int result = task.LastTaskResult;
-            string xml = task.Xml;
-
-            return new ComponentStatus(
-                component,
-                InstalledComponents.TaskStateWords(state),
-                InstalledComponents.TaskResultWords(result, lastRun),
-                InstalledComponents.TriggersToWords(xml));
+            var snapshot = new TaskSnapshot(
+                State: (int)task.State,
+                Enabled: (bool)task.Enabled,
+                LastRun: (DateTime)task.LastRunTime,
+                LastResult: (int)task.LastTaskResult,
+                NextRun: (DateTime)task.NextRunTime,
+                Xml: (string)task.Xml);
+            return InstalledComponents.FromTask(component, snapshot);
         }
         catch (COMException ex) when (ex.HResult is FileNotFound or PathNotFound)
         {

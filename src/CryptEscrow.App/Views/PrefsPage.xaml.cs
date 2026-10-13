@@ -26,14 +26,20 @@ public sealed partial class PrefsPage : Page
             AppIcon.Source = new BitmapImage(new Uri(iconPath));
 
         VersionText.Text = ViewModel.VersionDisplay;
+        // The card exists only when the installer creates a service or task.
+        ServicesCard.Visibility = ViewModel.HasComponents ? Visibility.Visible : Visibility.Collapsed;
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
         Reload();
-        _ = RefreshServicesAsync();
+        if (ViewModel.HasComponents)
+            _ = RefreshServicesAsync();
     }
+
+    /// <summary>The theme brush for a Services row's state dot.</summary>
+    public static Brush StateBrush(string key) => (Brush)Application.Current.Resources[key];
 
     private void RefreshServices_Click(object sender, RoutedEventArgs e) => _ = RefreshServicesAsync();
 

@@ -62,11 +62,13 @@ public partial class PrefsViewModel : ObservableObject
     // ── Services ────────────────────────────────────────────────
 
     /// <summary>The scheduled task the installer creates, and how it is doing.</summary>
+    public bool HasComponents => InstalledComponents.All.Count > 0;
+
     public IReadOnlyList<ComponentStatus> Components { get; private set; } =
-        InstalledComponents.All.Select(c => new ComponentStatus(c, "Checking…", "", "")).ToList();
+        InstalledComponents.All.Select(InstalledComponents.Checking).ToList();
 
     /// <summary>A task the user cannot read: SYSTEM tasks are readable only by administrators.</summary>
-    public bool ServicesNeedAdmin => !IsElevated && Components.Any(c => c.State == "Unknown");
+    public bool ServicesNeedAdmin => !IsElevated && Components.Any(c => c.State == InstalledComponents.UnknownText);
 
     public async Task LoadComponentsAsync()
     {
