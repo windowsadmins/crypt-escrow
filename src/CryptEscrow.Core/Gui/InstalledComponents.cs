@@ -101,7 +101,7 @@ public static class InstalledComponents
             rows.Add(new("Account", account));
         if (ActionsToCommands(task.Xml) is { } commands)
             rows.Add(new("Path and arguments", commands));
-        var triggers = TriggersToWords(task.Xml);
+        var triggers = TriggersToWords(task.Xml, culture);
         rows.Add(new("Triggers", triggers));
         rows.Add(new("Last run", RunTime(task.LastRun, "Never", culture)));
         rows.Add(new("Last result", TaskResultWords(task.LastResult, task.LastRun)));
@@ -196,8 +196,11 @@ public static class InstalledComponents
 
     private static readonly XNamespace Ns = "http://schemas.microsoft.com/windows/2004/02/mit/task";
 
-    /// <summary>A task definition's triggers in plain words, joined with "; ".</summary>
-    public static string TriggersToWords(string taskXml)
+    /// <summary>
+    /// A task definition's triggers in plain words, joined with "; ". Times of day use the
+    /// culture's short time pattern ("t"), the current culture unless one is given.
+    /// </summary>
+    public static string TriggersToWords(string taskXml, IFormatProvider? culture = null)
     {
         XElement? triggers;
         try
@@ -211,15 +214,15 @@ public static class InstalledComponents
 
         var words = triggers?.Elements()
             .Where(t => !string.Equals((string?)t.Element(Ns + "Enabled"), "false", StringComparison.OrdinalIgnoreCase))
-            .Select(TriggerWords)
+            .Select(t => TriggerWords(t, culture ?? CultureInfo.CurrentCulture))
             .ToList() ?? [];
         return words.Count == 0 ? "No trigger" : string.Join("; ", words);
     }
 
-    private static string TriggerWords(XElement trigger)
+    private static string TriggerWords(XElement trigger, IFormatProvider culture)
     {
         var start = ParseStart((string?)trigger.Element(Ns + "StartBoundary"));
-        var at = start is { } s ? $" at {Time(s)}" : "";
+        var at = start is { } s ? $" at {s.ToString("t", culture)}" : "";
 
         var words = trigger.Name.LocalName switch
         {
@@ -229,7 +232,7 @@ public static class InstalledComponents
             "RegistrationTrigger" => "When the task is registered",
             "EventTrigger" => "When an event is logged",
             "SessionStateChangeTrigger" => "When a session changes",
-            "TimeTrigger" => start is { } once ? $"Once at {once.ToString("g", CultureInfo.InvariantCulture)}" : "Once",
+            "TimeTrigger" => start is { } once ? $"Once at {once.ToString("g", culture)}" : "Once",
             "CalendarTrigger" => CalendarWords(trigger, at),
             var other => other
         };
@@ -287,6 +290,4 @@ public static class InstalledComponents
 
     private static DateTime? ParseStart(string? value) =>
         DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var start) ? start : null;
-
-    private static string Time(DateTime time) => time.ToString("h:mm tt", CultureInfo.InvariantCulture);
 }

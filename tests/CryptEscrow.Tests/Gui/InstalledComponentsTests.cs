@@ -9,6 +9,12 @@ public class InstalledComponentsTests
 {
     private const string Ns = "http://schemas.microsoft.com/windows/2004/02/mit/task";
 
+    private static readonly CultureInfo EnUs = CultureInfo.GetCultureInfo("en-US");
+    private static readonly CultureInfo EnGb = CultureInfo.GetCultureInfo("en-GB");
+
+    // ICU may put a narrow no-break space before AM/PM; compare with plain spaces.
+    private static string Plain(string text) => text.Replace('\u202F', ' ').Replace('\u00A0', ' ');
+
     private static string Task(string triggers, string principals = "", string actions = "") => $"""
         <?xml version="1.0" encoding="UTF-16"?>
         <Task version="1.2" xmlns="{Ns}">
@@ -52,7 +58,34 @@ public class InstalledComponentsTests
     [InlineData("<TimeTrigger><StartBoundary>2026-01-01T00:00:00</StartBoundary><Repetition><Interval>PT4H</Interval></Repetition></TimeTrigger>", "Every 4 hours")]
     [InlineData("<CalendarTrigger><StartBoundary>2026-01-01T06:00:00</StartBoundary><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay><Repetition><Interval>PT30M</Interval></Repetition></CalendarTrigger>", "Daily at 6:00 AM, then every 30 minutes")]
     public void TriggersReadInPlainWords(string trigger, string expected) =>
-        InstalledComponents.TriggersToWords(Task(trigger)).Should().Be(expected);
+        Plain(InstalledComponents.TriggersToWords(Task(trigger), EnUs)).Should().Be(expected);
+
+    [Theory]
+    [InlineData("<CalendarTrigger><StartBoundary>2026-01-01T03:00:00</StartBoundary><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>", "Daily at 03:00")]
+    [InlineData("<CalendarTrigger><StartBoundary>2026-01-05T20:30:00</StartBoundary><ScheduleByWeek><DaysOfWeek><Monday /></DaysOfWeek><WeeksInterval>1</WeeksInterval></ScheduleByWeek></CalendarTrigger>", "Weekly on Monday at 20:30")]
+    public void TriggerTimesFollowTheCultureNotAFixedClock(string trigger, string expected) =>
+        Plain(InstalledComponents.TriggersToWords(Task(trigger), EnGb)).Should().Be(expected);
+
+    [Fact]
+    public void TriggerTimesDefaultToTheCurrentCulture()
+    {
+        var previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = EnGb;
+            InstalledComponents.TriggersToWords(Task(
+                "<CalendarTrigger><StartBoundary>2026-01-01T15:00:00</StartBoundary><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>"))
+                .Should().Be("Daily at 15:00");
+            CultureInfo.CurrentCulture = EnUs;
+            Plain(InstalledComponents.TriggersToWords(Task(
+                "<CalendarTrigger><StartBoundary>2026-01-01T15:00:00</StartBoundary><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>")))
+                .Should().Be("Daily at 3:00 PM");
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
+    }
 
     [Fact]
     public void SeveralTriggersAreJoinedAndDisabledOnesSkipped() =>
@@ -116,10 +149,11 @@ public class InstalledComponentsTests
     [Fact]
     public void RunTimesReadAsLocalTimeOrTheirEmptyWord()
     {
-        var culture = CultureInfo.InvariantCulture;
-        InstalledComponents.RunTime(new DateTime(2026, 10, 12, 14, 0, 0), "Never", culture).Should().Be("10/12/2026 14:00");
-        InstalledComponents.RunTime(new DateTime(1899, 12, 30), "Never", culture).Should().Be("Never");
-        InstalledComponents.RunTime(null, "Not scheduled", culture).Should().Be("Not scheduled");
+        var afternoon = new DateTime(2026, 10, 12, 14, 0, 0);
+        Plain(InstalledComponents.RunTime(afternoon, "Never", EnUs)).Should().Be("10/12/2026 2:00 PM");
+        InstalledComponents.RunTime(afternoon, "Never", EnGb).Should().Be("12/10/2026 14:00");
+        InstalledComponents.RunTime(new DateTime(1899, 12, 30), "Never", EnUs).Should().Be("Never");
+        InstalledComponents.RunTime(null, "Not scheduled", EnGb).Should().Be("Not scheduled");
     }
 
     [Theory]
@@ -144,11 +178,10 @@ public class InstalledComponentsTests
     [Fact]
     public void ReadableTaskShowsSummaryAndTheDetailRowsInOrder()
     {
-        var culture = CultureInfo.InvariantCulture;
         var status = InstalledComponents.FromTask(InstalledComponents.All[0], new TaskSnapshot(
             State: 3, Enabled: true,
             LastRun: new DateTime(2026, 10, 12, 14, 0, 0), LastResult: 0,
-            NextRun: new DateTime(2026, 10, 12, 15, 0, 0), Xml: EscrowTaskXml), culture);
+            NextRun: new DateTime(2026, 10, 12, 15, 0, 0), Xml: EscrowTaskXml), EnGb);
 
         status.State.Should().Be("Ready");
         status.Summary.Should().Be("Scheduled task · Every hour · Last result 0");
@@ -159,9 +192,9 @@ public class InstalledComponentsTests
             ("Account", "SYSTEM"),
             ("Path and arguments", "\"C:\\Program Files\\Crypt\\checkin.exe\" escrow"),
             ("Triggers", "Every hour"),
-            ("Last run", "10/12/2026 14:00"),
+            ("Last run", "12/10/2026 14:00"),
             ("Last result", "Succeeded"),
-            ("Next run", "10/12/2026 15:00"));
+            ("Next run", "12/10/2026 15:00"));
     }
 
     [Fact]
