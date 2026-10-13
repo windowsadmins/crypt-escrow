@@ -1,5 +1,9 @@
 using System.Globalization;
+using System.IO.Pipes;
 using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using System.Text;
 using System.Text.Json;
 using CryptEscrow.Services;
 
@@ -8,7 +12,8 @@ namespace CryptEscrow.Gui;
 /// <summary>
 /// Writes the Prefs tab's pending changes to the machine settings key. The app calls it
 /// directly when it is elevated, and otherwise hands the changes to an elevated copy of
-/// itself as a JSON file (<see cref="PrefsElevation.ApplySettingsArgument"/>). Either way
+/// itself over a named pipe (<see cref="PrefsElevation.ApplySettingsArgument"/>), so the
+/// values, secrets included, never touch disk. Either way
 /// policy is read again here and every policy-managed setting is skipped, and each value is
 /// checked with the same rules the tab uses.
 /// </summary>
@@ -136,25 +141,85 @@ public static class SettingsApply
         return changes;
     }
 
-    /// <summary>Writes the changes to a new file in the user's temp folder.</summary>
-    public static string WritePayload(IReadOnlyDictionary<string, string?> changes)
+    // ── Pipe ────────────────────────────────────────────────────
+
+    private const string PipePrefix = "crypt-escrow-settings-";
+
+    /// <summary>How long the app waits for the elevated copy to connect, UAC prompt included.</summary>
+    public static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(60);
+
+    public static string NewPipeName() => PipePrefix + Guid.NewGuid().ToString("N");
+
+    /// <summary>Only a pipe name this app makes is accepted by the apply mode.</summary>
+    public static bool IsPipeName(string name) =>
+        name.StartsWith(PipePrefix, StringComparison.Ordinal)
+        && Guid.TryParseExact(name[PipePrefix.Length..], "N", out _);
+
+    /// <summary>
+    /// The app's end of the pipe: one instance, created first so no one else can own the
+    /// name, open only to the current user, Administrators and SYSTEM. Administrators covers
+    /// an elevated copy running as a different administrator (over-the-shoulder UAC).
+    /// </summary>
+    public static NamedPipeServerStream CreatePipe(string name)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"crypt-escrow-settings-{Guid.NewGuid():N}.json");
-        File.WriteAllText(path, Serialize(changes));
-        return path;
+        using var identity = WindowsIdentity.GetCurrent();
+        var security = new PipeSecurity();
+        foreach (var sid in PipeAllowedSids(identity.User!))
+            security.AddAccessRule(new PipeAccessRule(sid, PipeAccessRights.ReadWrite, AccessControlType.Allow));
+
+        return NamedPipeServerStreamAcl.Create(name, PipeDirection.Out, 1, PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | PipeOptions.FirstPipeInstance, 0, 0, security);
+    }
+
+    internal static IReadOnlyList<SecurityIdentifier> PipeAllowedSids(SecurityIdentifier user) =>
+    [
+        user,
+        new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+        new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null)
+    ];
+
+    /// <summary>Waits for the elevated copy, sends the changes and closes the pipe.</summary>
+    public static async Task SendAsync(NamedPipeServerStream pipe, IReadOnlyDictionary<string, string?> changes, CancellationToken cancel)
+    {
+        await pipe.WaitForConnectionAsync(cancel);
+        var bytes = Encoding.UTF8.GetBytes(Serialize(changes));
+        await pipe.WriteAsync(bytes, cancel);
+        await pipe.FlushAsync(cancel);
+        pipe.WaitForPipeDrain();
+        pipe.Disconnect();
     }
 
     /// <summary>
-    /// The windowless apply mode: reads the payload, writes it and returns an exit code.
-    /// It writes nothing but the settings: the payload sits in a folder the user controls,
-    /// so the elevated copy reports only through its exit code.
+    /// The windowless apply mode: reads the changes from the app's pipe, writes them and
+    /// returns an exit code. It writes nothing but the settings, and reports only through
+    /// its exit code.
     /// </summary>
-    public static int RunFromFile(string payloadPath)
+    public static int RunFromPipe(string pipeName)
+    {
+        if (!IsPipeName(pipeName))
+            return ExitUnreadable;
+        string json;
+        try
+        {
+            using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.In);
+            pipe.Connect((int)TimeSpan.FromSeconds(10).TotalMilliseconds);
+            using var reader = new StreamReader(pipe, Encoding.UTF8);
+            json = reader.ReadToEnd();
+        }
+        catch (Exception)
+        {
+            return ExitUnreadable;
+        }
+        return RunFromJson(json);
+    }
+
+    /// <summary>Applies a serialized set of changes, all or nothing on validation.</summary>
+    public static int RunFromJson(string json)
     {
         Dictionary<string, string?> changes;
         try
         {
-            changes = Deserialize(File.ReadAllText(payloadPath));
+            changes = Deserialize(json);
         }
         catch (Exception)
         {

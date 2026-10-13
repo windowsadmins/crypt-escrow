@@ -177,28 +177,46 @@ public partial class PrefsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Starts this app elevated in its apply mode and waits for it. Returns its exit code,
-    /// or null when the UAC prompt was declined. The payload file is always deleted.
+    /// Starts this app elevated in its apply mode and hands it the changes over a named
+    /// pipe only this user, Administrators and SYSTEM can open; nothing is written to disk.
+    /// Returns its exit code, or null when the UAC prompt was declined.
     /// </summary>
     private static async Task<int?> RunElevatedApplyAsync(IReadOnlyDictionary<string, string?> changes)
     {
         var exe = Environment.ProcessPath
             ?? throw new InvalidOperationException("could not find the app's own executable.");
-        var payload = SettingsApply.WritePayload(changes);
+        var pipeName = SettingsApply.NewPipeName();
+        using var pipe = SettingsApply.CreatePipe(pipeName);
+
+        Process process;
         try
         {
-            using var process = Process.Start(PrefsElevation.BuildApplySettings(exe, payload))
+            process = Process.Start(PrefsElevation.BuildApplySettings(exe, pipeName))
                 ?? throw new InvalidOperationException("the administrator copy did not start.");
-            await process.WaitForExitAsync();
-            return process.ExitCode;
         }
         catch (Exception ex) when (PrefsElevation.IsElevationCancelled(ex))
         {
             return null;
         }
-        finally
+
+        using (process)
         {
-            try { File.Delete(payload); } catch { }
+            // Stop waiting at the timeout, or as soon as the copy exits without connecting.
+            using var timeout = new CancellationTokenSource(SettingsApply.ConnectTimeout);
+            _ = process.WaitForExitAsync().ContinueWith(_ =>
+            {
+                try { timeout.Cancel(); } catch (ObjectDisposedException) { }
+            }, TaskScheduler.Default);
+            try
+            {
+                await SettingsApply.SendAsync(pipe, changes, timeout.Token);
+            }
+            catch (OperationCanceledException) when (!process.HasExited)
+            {
+                throw new InvalidOperationException("the administrator copy did not connect in time.");
+            }
+            await process.WaitForExitAsync();
+            return process.ExitCode;
         }
     }
 }

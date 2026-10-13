@@ -20,13 +20,13 @@ public class PrefsElevationTests
     public void SaveRelaunchAsksForElevationAndAppliesThePayloadWithoutAWindow()
     {
         var start = PrefsElevation.BuildApplySettings(
-            @"C:\Program Files\Crypt\Managed Encryption Escrow.exe", @"C:\Temp\changes.json");
+            @"C:\Program Files\Crypt\Managed Encryption Escrow.exe", "crypt-escrow-settings-0123456789abcdef0123456789abcdef");
 
         start.Verb.Should().Be("runas");
         start.UseShellExecute.Should().BeTrue();
-        PrefsElevation.ApplySettingsPath(start.ArgumentList.ToList()).Should().Be(@"C:\Temp\changes.json");
-        PrefsElevation.ApplySettingsPath([]).Should().BeNull();
-        PrefsElevation.ApplySettingsPath(["--apply-settings"]).Should().BeNull();
+        PrefsElevation.ApplySettingsPipe(start.ArgumentList.ToList()).Should().Be("crypt-escrow-settings-0123456789abcdef0123456789abcdef");
+        PrefsElevation.ApplySettingsPipe([]).Should().BeNull();
+        PrefsElevation.ApplySettingsPipe(["--apply-settings"]).Should().BeNull();
     }
 
     [Fact]

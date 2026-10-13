@@ -1,3 +1,6 @@
+using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using CryptEscrow.Gui;
 using CryptEscrow.Tests.Fixtures;
 using CryptEscrow.Tests.Services;
@@ -34,17 +37,9 @@ public class SettingsApplyTests
     public void MalformedPayloadIsRefusedWithoutWriting(string json)
     {
         using var reg = new TempRegistryKey();
-        var path = Path.Combine(Path.GetTempPath(), $"crypt-escrow-test-{Guid.NewGuid():N}.json");
-        File.WriteAllText(path, json);
-        try
-        {
-            SettingsApply.RunFromFile(path).Should().Be(SettingsApply.ExitUnreadable);
-            reg.GetSetting("ServerUrl").Should().BeNull();
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+
+        SettingsApply.RunFromJson(json).Should().Be(SettingsApply.ExitUnreadable);
+        reg.GetSetting("ServerUrl").Should().BeNull();
     }
 
     [Fact]
@@ -68,47 +63,62 @@ public class SettingsApplyTests
     }
 
     [Fact]
-    public void ApplyModeWritesThePayloadFileAndClearsNulls()
+    public async Task ApplyModeReadsTheChangesOverThePipeAndClearsNulls()
     {
         using var reg = new TempRegistryKey();
         using var yaml = new TempConfigFile();
         reg.SetSetting("PostRunCommand", "old");
-        var path = SettingsApply.WritePayload(new Dictionary<string, string?>
+        var name = SettingsApply.NewPipeName();
+        using var pipe = SettingsApply.CreatePipe(name);
+
+        var child = Task.Run(() => SettingsApply.RunFromPipe(name));
+        await SettingsApply.SendAsync(pipe, new Dictionary<string, string?>
         {
             ["ServerUrl"] = " https://new.example.com ",
             ["PostRunCommand"] = null
-        });
-        try
-        {
-            SettingsApply.RunFromFile(path).Should().Be(SettingsApply.ExitSaved);
-            reg.GetSetting("ServerUrl").Should().Be("https://new.example.com");
-            reg.GetSetting("PostRunCommand").Should().BeNull();
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        }, new CancellationTokenSource(TimeSpan.FromSeconds(10)).Token);
+
+        (await child).Should().Be(SettingsApply.ExitSaved);
+        reg.GetSetting("ServerUrl").Should().Be("https://new.example.com");
+        reg.GetSetting("PostRunCommand").Should().BeNull();
     }
+
+    [Fact]
+    public void PipeIsOpenOnlyToTheUserAdministratorsAndSystem()
+    {
+        using var pipe = SettingsApply.CreatePipe(SettingsApply.NewPipeName());
+        using var identity = WindowsIdentity.GetCurrent();
+
+        var allowed = pipe.GetAccessControl()
+            .GetAccessRules(true, true, typeof(SecurityIdentifier))
+            .Cast<PipeAccessRule>()
+            .Where(r => r.AccessControlType == AccessControlType.Allow)
+            .Select(r => r.IdentityReference.Value)
+            .Distinct();
+
+        allowed.Should().BeEquivalentTo([identity.User!.Value, "S-1-5-32-544", "S-1-5-18"]);
+    }
+
+    [Theory]
+    [InlineData("crypt-escrow-settings-0123456789abcdef0123456789abcdef", true)]
+    [InlineData("crypt-escrow-settings-nope", false)]
+    [InlineData(@"\\.\pipe\something-else", false)]
+    public void ApplyModeOnlyConnectsToItsOwnPipeNames(string name, bool expected) =>
+        SettingsApply.IsPipeName(name).Should().Be(expected);
 
     [Fact]
     public void ApplyModeWritesNothingWhenAnyValueIsInvalid()
     {
         using var reg = new TempRegistryKey();
         using var yaml = new TempConfigFile();
-        var path = SettingsApply.WritePayload(new Dictionary<string, string?>
+
+        SettingsApply.RunFromJson(SettingsApply.Serialize(new Dictionary<string, string?>
         {
             ["ServerUrl"] = "https://new.example.com",
             ["KeyEscrowIntervalHours"] = "-3"
-        });
-        try
-        {
-            SettingsApply.RunFromFile(path).Should().Be(SettingsApply.ExitInvalid);
-            reg.GetSetting("ServerUrl").Should().BeNull();
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        })).Should().Be(SettingsApply.ExitInvalid);
+
+        reg.GetSetting("ServerUrl").Should().BeNull();
     }
 
     [Fact]
