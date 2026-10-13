@@ -1,29 +1,21 @@
+using System.Diagnostics;
 using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CryptEscrow.App.Services;
 using CryptEscrow.Gui;
 
 namespace CryptEscrow.App.ViewModels;
 
 /// <summary>
-/// ViewModel for the Prefs tab. Settings live in HKLM, so the tab is read-only unless this
-/// process is elevated; Unlock relaunches the app elevated on this tab. A field set by
-/// policy shows the policy value and stays locked. Secrets are never read into the view:
-/// once elevated, the tab only says whether one is saved.
+/// ViewModel for the Prefs tab. Every setting policy does not set can be edited; edits are
+/// held as pending until Save writes them to HKLM, asking for administrator approval then
+/// when the app is not already elevated. A field set by policy shows the policy value and
+/// stays disabled, under one banner for the tab. Secrets are never read into the view.
 /// </summary>
 public partial class PrefsViewModel : ObservableObject
 {
-    // ── Elevation State ─────────────────────────────────────────
-
-    /// <summary>True when this process can write HKLM (elevated administrator token).</summary>
+    /// <summary>True when this process can write HKLM directly (elevated administrator token).</summary>
     public bool IsElevated { get; } = PrefsElevation.IsProcessElevated();
-
-    public bool IsReadOnly => !IsElevated;
-
-    [ObservableProperty] private string _unlockError = "";
-
-    public bool HasUnlockError => !string.IsNullOrEmpty(UnlockError);
-
-    partial void OnUnlockErrorChanged(string value) => OnPropertyChanged(nameof(HasUnlockError));
 
     // ── Settings ────────────────────────────────────────────────
 
@@ -31,7 +23,59 @@ public partial class PrefsViewModel : ObservableObject
 
     public IEnumerable<SettingState> InGroup(string group) => Settings.Where(s => s.Definition.Group == group);
 
-    public bool CanEdit(SettingState state) => PrefsElevation.CanEdit(IsElevated, state.IsManaged);
+    public bool CanEdit(SettingState state) => PrefsElevation.CanEdit(state.IsManaged);
+
+    /// <summary>True when any setting comes from the policy key; shows the policy banner.</summary>
+    public bool HasPolicySettings => Settings.Any(s => s.IsManaged);
+
+    // ── Pending Changes ─────────────────────────────────────────
+
+    private readonly Dictionary<string, string?> _pending = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool HasPendingChanges => _pending.Count > 0;
+
+    [ObservableProperty] private bool _isSaving;
+
+    /// <summary>
+    /// Records an edit. A value equal to what is saved drops the pending change; a secret
+    /// is always pending, since the saved one is never read.
+    /// </summary>
+    public void SetPending(SettingState state, string? value)
+    {
+        if (!CanEdit(state))
+            return;
+        var name = state.Definition.Name;
+        if (state.Definition.Kind != SettingKind.Secret && string.Equals(value, state.FieldValue, StringComparison.Ordinal))
+            _pending.Remove(name);
+        else
+            _pending[name] = value;
+        OnPropertyChanged(nameof(HasPendingChanges));
+    }
+
+    public void DiscardPending()
+    {
+        _pending.Clear();
+        SaveMessage = "";
+        OnPropertyChanged(nameof(HasPendingChanges));
+    }
+
+    // ── Services ────────────────────────────────────────────────
+
+    /// <summary>The scheduled task the installer creates, and how it is doing.</summary>
+    public bool HasComponents => InstalledComponents.All.Count > 0;
+
+    public IReadOnlyList<ComponentStatus> Components { get; private set; } =
+        InstalledComponents.All.Select(InstalledComponents.Checking).ToList();
+
+    /// <summary>A task the user cannot read: SYSTEM tasks are readable only by administrators.</summary>
+    public bool ServicesNeedAdmin => !IsElevated && Components.Any(c => c.State == InstalledComponents.UnknownText);
+
+    public async Task LoadComponentsAsync()
+    {
+        Components = await ComponentStatusReader.ReadAllAsync();
+        OnPropertyChanged(nameof(Components));
+        OnPropertyChanged(nameof(ServicesNeedAdmin));
+    }
 
     // ── Save Status ─────────────────────────────────────────────
 
@@ -60,65 +104,121 @@ public partial class PrefsViewModel : ObservableObject
     {
         Settings = SettingsCatalog.Load();
         OnPropertyChanged(nameof(Settings));
+        OnPropertyChanged(nameof(HasPolicySettings));
     }
 
     /// <summary>
-    /// Writes one field to the machine settings key. An empty value removes the saved
-    /// value. Never called while read-only, and refused for a managed field.
+    /// Writes the pending changes to the machine settings key: directly when elevated,
+    /// otherwise through an elevated, windowless copy of this app. Returns true when they
+    /// were saved; on failure, or when UAC is declined, the changes stay pending.
     /// </summary>
-    public bool Save(SettingState state, string? value)
+    public async Task<bool> SaveAsync()
     {
-        if (!CanEdit(state))
+        if (!HasPendingChanges || IsSaving)
             return false;
 
+        // Check every value here first, with the same rules the writer applies.
+        foreach (var (name, value) in _pending)
+        {
+            var definition = SettingsCatalog.Definitions.First(d => d.Name == name);
+            if (SettingsApply.Validate(definition, value).Error is { } error)
+                return Fail(error);
+        }
+
+        var changes = new Dictionary<string, string?>(_pending, StringComparer.OrdinalIgnoreCase);
+        IsSaving = true;
         try
         {
-            SettingsCatalog.Save(state.Definition.Name, value);
-            SaveFailed = false;
-            SaveMessage = state.Definition.Kind == SettingKind.Secret
-                ? $"Saved {state.Definition.Label}"
-                : string.IsNullOrWhiteSpace(value)
-                    ? $"Cleared {state.Definition.Label}"
-                    : $"Saved {state.Definition.Label}";
-            Load();
-            return true;
+            if (IsElevated)
+            {
+                var result = await Task.Run(() => SettingsApply.Apply(changes));
+                if (!result.Succeeded)
+                    return Fail(string.Join("; ", result.Errors));
+            }
+            else
+            {
+                var exitCode = await RunElevatedApplyAsync(changes);
+                if (exitCode is null)
+                    return Fail("administrator approval was declined.");
+                if (exitCode != SettingsApply.ExitSaved)
+                    return Fail(SettingsApply.ExitReason(exitCode.Value));
+            }
         }
         catch (Exception ex)
         {
-            SaveFailed = true;
-            SaveMessage = $"Could not save {state.Definition.Label}: {ex.Message}";
-            return false;
+            return Fail(ex.Message);
         }
+        finally
+        {
+            IsSaving = false;
+        }
+
+        SaveFailed = false;
+        SaveMessage = changes.Count == 1
+            ? SavedMessage(changes.Keys.Single(), changes.Values.Single())
+            : $"Saved {changes.Count} settings";
+        _pending.Clear();
+        OnPropertyChanged(nameof(HasPendingChanges));
+        Load();
+        return true;
+    }
+
+    private static string SavedMessage(string name, string? value)
+    {
+        var definition = SettingsCatalog.Definitions.First(d => d.Name == name);
+        return definition.Kind != SettingKind.Secret && string.IsNullOrWhiteSpace(value)
+            ? $"Cleared {definition.Label}"
+            : $"Saved {definition.Label}";
+    }
+
+    private bool Fail(string reason)
+    {
+        SaveFailed = true;
+        SaveMessage = $"Not saved: {reason}";
+        return false;
     }
 
     /// <summary>
-    /// Relaunches this app elevated through UAC, opening on the Prefs tab. Returns true when
-    /// the elevated instance started, so the caller can close this one. A cancelled UAC
-    /// prompt returns false quietly and leaves the tab read-only.
+    /// Starts this app elevated in its apply mode and hands it the changes over a named
+    /// pipe only this user, Administrators and SYSTEM can open; nothing is written to disk.
+    /// Returns its exit code, or null when the UAC prompt was declined.
     /// </summary>
-    public bool TryRelaunchElevated()
+    private static async Task<int?> RunElevatedApplyAsync(IReadOnlyDictionary<string, string?> changes)
     {
-        UnlockError = "";
+        var exe = Environment.ProcessPath
+            ?? throw new InvalidOperationException("could not find the app's own executable.");
+        var pipeName = SettingsApply.NewPipeName();
+        using var pipe = SettingsApply.CreatePipe(pipeName);
+
+        Process process;
         try
         {
-            var exe = Environment.ProcessPath;
-            if (string.IsNullOrEmpty(exe))
-            {
-                UnlockError = "Could not find the app's own executable to relaunch.";
-                return false;
-            }
-
-            using var process = System.Diagnostics.Process.Start(PrefsElevation.BuildElevatedRelaunch(exe));
-            return process is not null;
+            process = Process.Start(PrefsElevation.BuildApplySettings(exe, pipeName))
+                ?? throw new InvalidOperationException("the administrator copy did not start.");
         }
         catch (Exception ex) when (PrefsElevation.IsElevationCancelled(ex))
         {
-            return false;
+            return null;
         }
-        catch (Exception ex)
+
+        using (process)
         {
-            UnlockError = $"Could not relaunch as administrator: {ex.Message}";
-            return false;
+            // Stop waiting at the timeout, or as soon as the copy exits without connecting.
+            using var timeout = new CancellationTokenSource(SettingsApply.ConnectTimeout);
+            _ = process.WaitForExitAsync().ContinueWith(_ =>
+            {
+                try { timeout.Cancel(); } catch (ObjectDisposedException) { }
+            }, TaskScheduler.Default);
+            try
+            {
+                await SettingsApply.SendAsync(pipe, changes, timeout.Token);
+            }
+            catch (OperationCanceledException) when (!process.HasExited)
+            {
+                throw new InvalidOperationException("the administrator copy did not connect in time.");
+            }
+            await process.WaitForExitAsync();
+            return process.ExitCode;
         }
     }
 }

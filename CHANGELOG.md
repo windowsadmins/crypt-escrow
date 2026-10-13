@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **App Prefs tab.** There is no Unlock mode any more. Settings policy does not set
+  are editable in the normal app; Save asks for administrator approval when it writes
+  them. Policy-set fields are gray, under one line saying so, instead of each carrying
+  a "Managed by Policy" caption. A read-only Services card shows the escrow scheduled
+  task's state, last result and schedule.
+
 - **Settings precedence.** Policy now overrides environment variables. The
   chain is: command line, policy (Group Policy path, then the Intune
   PolicyManager path, both unchanged), machine settings, environment, the

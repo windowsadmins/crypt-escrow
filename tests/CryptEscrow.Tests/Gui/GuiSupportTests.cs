@@ -11,21 +11,22 @@ namespace CryptEscrow.Tests.Gui;
 public class PrefsElevationTests
 {
     [Theory]
-    [InlineData(true, false, true)]
-    [InlineData(true, true, false)]
-    [InlineData(false, false, false)]
-    [InlineData(false, true, false)]
-    public void EditableOnlyWhenElevatedAndNotManaged(bool elevated, bool managed, bool expected) =>
-        PrefsElevation.CanEdit(elevated, managed).Should().Be(expected);
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void EditableUnlessManagedWithoutElevation(bool managed, bool expected) =>
+        PrefsElevation.CanEdit(managed).Should().Be(expected);
 
     [Fact]
-    public void RelaunchAsksForElevationAndOpensOnPrefs()
+    public void SaveRelaunchAsksForElevationAndAppliesThePayloadWithoutAWindow()
     {
-        var start = PrefsElevation.BuildElevatedRelaunch(@"C:\Program Files\Crypt\Managed Encryption Escrow.exe");
+        var start = PrefsElevation.BuildApplySettings(
+            @"C:\Program Files\Crypt\Managed Encryption Escrow.exe", "crypt-escrow-settings-0123456789abcdef0123456789abcdef");
 
         start.Verb.Should().Be("runas");
         start.UseShellExecute.Should().BeTrue();
-        PrefsElevation.OpensOnPrefs(start.ArgumentList).Should().BeTrue();
+        PrefsElevation.ApplySettingsPipe(start.ArgumentList.ToList()).Should().Be("crypt-escrow-settings-0123456789abcdef0123456789abcdef");
+        PrefsElevation.ApplySettingsPipe([]).Should().BeNull();
+        PrefsElevation.ApplySettingsPipe(["--apply-settings"]).Should().BeNull();
     }
 
     [Fact]
@@ -176,7 +177,8 @@ public class SettingsCatalogTests
 
         state.IsManaged.Should().BeTrue();
         state.FieldValue.Should().Be("https://policy.example.com");
-        PrefsElevation.CanEdit(isElevated: true, state.IsManaged).Should().BeFalse();
+        PrefsElevation.CanEdit(state.IsManaged).Should().BeFalse();
+        state.SourceCaption.Should().BeEmpty("the tab's policy banner covers managed fields");
     }
 
     [Fact]
@@ -213,14 +215,16 @@ public class SettingsCatalogTests
     }
 
     [Fact]
-    public void SecretSetByPolicySaysSo()
+    public void SecretSetByPolicyIsManagedAndSaysOnlyWhetherSaved()
     {
         using var reg = new TempRegistryKey();
         using var yaml = new TempConfigFile();
         reg.SetString("ApiKey", "from-policy");
 
-        SettingsCatalog.Load().Single(s => s.Definition.Name == "ApiKey")
-            .SecretStatus(isElevated: true).Should().Be("Saved (by policy)");
+        var apiKey = SettingsCatalog.Load().Single(s => s.Definition.Name == "ApiKey");
+
+        apiKey.IsManaged.Should().BeTrue();
+        apiKey.SecretStatus(isElevated: true).Should().Be("Saved");
     }
 
     [Fact]
@@ -248,7 +252,7 @@ public class SettingsCatalogTests
         var apiKey = SettingsCatalog.Load().Single(s => s.Definition.Name == "ApiKey");
 
         apiKey.IsManaged.Should().BeTrue();
-        apiKey.SecretStatus(isElevated: true).Should().Be("Saved (by policy)");
+        apiKey.SecretStatus(isElevated: true).Should().Be("Saved");
         var save = () => SettingsCatalog.Save("ApiKey", "mine");
         save.Should().Throw<InvalidOperationException>();
         reg.GetSecret("ApiKey").Should().Be("from-policy");

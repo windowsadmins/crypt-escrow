@@ -38,22 +38,22 @@ public sealed record SettingState(
     public bool ToggleValue => ConfigService.ParseBool(FieldValue) ?? ConfigService.ParseBool(EffectiveValue) ?? false;
 
     /// <summary>
-    /// For a secret, whether one is saved, and only once the app is elevated. The value
+    /// For a secret, whether one is saved; only an elevated app can read that. The value
     /// itself is never read into the app's view.
     /// </summary>
     public string SecretStatus(bool isElevated)
     {
         if (!isElevated)
-            return "Unlock to see whether this is saved";
-        if (PolicyValue is not null)
-            return MachineValue is not null ? "Saved (by policy)" : "Not saved (managed by policy)";
+            return "Only administrators can see whether this is set";
         return MachineValue is not null ? "Saved" : "Not saved";
     }
 
-    /// <summary>Caption under an unmanaged field: what applies when the field is empty.</summary>
+    /// <summary>
+    /// Caption under an unmanaged field: what applies when the field is empty. Empty for a
+    /// policy value; the tab's banner covers those.
+    /// </summary>
     public string SourceCaption => EffectiveSource switch
     {
-        SettingSource.Policy => "Managed by policy",
         SettingSource.MachineSettings => "Saved on this device",
         SettingSource.Environment => $"From the environment: {EffectiveValue}",
         SettingSource.LegacyFile => $"From config.yaml: {EffectiveValue}",
