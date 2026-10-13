@@ -45,15 +45,15 @@ public sealed record SettingState(
     {
         if (!isElevated)
             return "Unlock to see whether this is saved";
-        if (PolicyValue is not null)
-            return MachineValue is not null ? "Saved (by policy)" : "Not saved (managed by policy)";
         return MachineValue is not null ? "Saved" : "Not saved";
     }
 
-    /// <summary>Caption under an unmanaged field: what applies when the field is empty.</summary>
+    /// <summary>
+    /// Caption under an unmanaged field: what applies when the field is empty. Empty for a
+    /// policy value; the tab's banner covers those.
+    /// </summary>
     public string SourceCaption => EffectiveSource switch
     {
-        SettingSource.Policy => "Managed by policy",
         SettingSource.MachineSettings => "Saved on this device",
         SettingSource.Environment => $"From the environment: {EffectiveValue}",
         SettingSource.LegacyFile => $"From config.yaml: {EffectiveValue}",

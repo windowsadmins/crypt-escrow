@@ -10,7 +10,8 @@ namespace CryptEscrow.App.Views;
 
 /// <summary>
 /// The Prefs tab. The cards are built from <see cref="SettingsCatalog"/>, so every setting
-/// the CLI reads appears here with the same lock and source rules.
+/// the CLI reads appears here with the same lock and source rules. A field set by policy is
+/// disabled, and one line above the cards says so for all of them.
 /// </summary>
 public sealed partial class PrefsPage : Page
 {
@@ -33,6 +34,25 @@ public sealed partial class PrefsPage : Page
     {
         base.OnNavigatedTo(e);
         Reload();
+        _ = RefreshServicesAsync();
+    }
+
+    private void RefreshServices_Click(object sender, RoutedEventArgs e) => _ = RefreshServicesAsync();
+
+    private async Task RefreshServicesAsync()
+    {
+        RefreshServicesButton.IsEnabled = false;
+        ServicesList.ItemsSource = ViewModel.Components;
+        try
+        {
+            await ViewModel.LoadComponentsAsync();
+        }
+        finally
+        {
+            ServicesList.ItemsSource = ViewModel.Components;
+            RefreshServicesButton.IsEnabled = true;
+            ServicesAccessHint.Visibility = ViewModel.ServicesNeedUnlock ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 
     private void UnlockButton_Click(object sender, RoutedEventArgs e)
@@ -57,6 +77,7 @@ public sealed partial class PrefsPage : Page
         Fill(EscrowCard, SettingsCatalog.Escrow, "");
         Fill(AuthenticationCard, SettingsCatalog.Authentication, "");
         Fill(LoggingCard, SettingsCatalog.Logging, "");
+        PolicyBanner.Visibility = ViewModel.HasPolicySettings ? Visibility.Visible : Visibility.Collapsed;
 
         SaveStatusText.Text = ViewModel.SaveMessage;
         SaveStatusText.Visibility = ViewModel.HasSaveMessage ? Visibility.Visible : Visibility.Collapsed;
@@ -182,9 +203,9 @@ public sealed partial class PrefsPage : Page
                 break;
         }
 
-        if (state.IsManaged)
-            card.Children.Add(PolicyLock());
-        else if (definition.Kind != SettingKind.Secret && state.MachineValue is null)
+        // A managed field gets no caption: it is disabled, and the policy banner covers it.
+        if (!state.IsManaged && definition.Kind != SettingKind.Secret && state.MachineValue is null
+            && !string.IsNullOrEmpty(state.SourceCaption))
             card.Children.Add(Caption(state.SourceCaption, primary: false));
 
         if (definition.Note is { } note)
@@ -209,18 +230,4 @@ public sealed partial class PrefsPage : Page
             ? (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"]
             : (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"]
     };
-
-    private static StackPanel PolicyLock()
-    {
-        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        var secondary = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"];
-        panel.Children.Add(new FontIcon { Glyph = "", FontSize = 12, Foreground = secondary });
-        panel.Children.Add(new TextBlock
-        {
-            Text = "Managed by Policy",
-            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
-            Foreground = secondary
-        });
-        return panel;
-    }
 }

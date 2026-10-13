@@ -177,6 +177,7 @@ public class SettingsCatalogTests
         state.IsManaged.Should().BeTrue();
         state.FieldValue.Should().Be("https://policy.example.com");
         PrefsElevation.CanEdit(isElevated: true, state.IsManaged).Should().BeFalse();
+        state.SourceCaption.Should().BeEmpty("the tab's policy banner covers managed fields");
     }
 
     [Fact]
@@ -213,14 +214,16 @@ public class SettingsCatalogTests
     }
 
     [Fact]
-    public void SecretSetByPolicySaysSo()
+    public void SecretSetByPolicyIsManagedAndSaysOnlyWhetherSaved()
     {
         using var reg = new TempRegistryKey();
         using var yaml = new TempConfigFile();
         reg.SetString("ApiKey", "from-policy");
 
-        SettingsCatalog.Load().Single(s => s.Definition.Name == "ApiKey")
-            .SecretStatus(isElevated: true).Should().Be("Saved (by policy)");
+        var apiKey = SettingsCatalog.Load().Single(s => s.Definition.Name == "ApiKey");
+
+        apiKey.IsManaged.Should().BeTrue();
+        apiKey.SecretStatus(isElevated: true).Should().Be("Saved");
     }
 
     [Fact]
@@ -248,7 +251,7 @@ public class SettingsCatalogTests
         var apiKey = SettingsCatalog.Load().Single(s => s.Definition.Name == "ApiKey");
 
         apiKey.IsManaged.Should().BeTrue();
-        apiKey.SecretStatus(isElevated: true).Should().Be("Saved (by policy)");
+        apiKey.SecretStatus(isElevated: true).Should().Be("Saved");
         var save = () => SettingsCatalog.Save("ApiKey", "mine");
         save.Should().Throw<InvalidOperationException>();
         reg.GetSecret("ApiKey").Should().Be("from-policy");

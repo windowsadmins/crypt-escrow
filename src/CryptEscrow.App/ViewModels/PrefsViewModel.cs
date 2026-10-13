@@ -1,5 +1,6 @@
 using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CryptEscrow.App.Services;
 using CryptEscrow.Gui;
 
 namespace CryptEscrow.App.ViewModels;
@@ -7,7 +8,7 @@ namespace CryptEscrow.App.ViewModels;
 /// <summary>
 /// ViewModel for the Prefs tab. Settings live in HKLM, so the tab is read-only unless this
 /// process is elevated; Unlock relaunches the app elevated on this tab. A field set by
-/// policy shows the policy value and stays locked. Secrets are never read into the view:
+/// policy shows the policy value and stays disabled, under one banner for the tab. Secrets are never read into the view:
 /// once elevated, the tab only says whether one is saved.
 /// </summary>
 public partial class PrefsViewModel : ObservableObject
@@ -32,6 +33,24 @@ public partial class PrefsViewModel : ObservableObject
     public IEnumerable<SettingState> InGroup(string group) => Settings.Where(s => s.Definition.Group == group);
 
     public bool CanEdit(SettingState state) => PrefsElevation.CanEdit(IsElevated, state.IsManaged);
+
+    /// <summary>True when any setting comes from the policy key; shows the policy banner.</summary>
+    public bool HasPolicySettings => Settings.Any(s => s.IsManaged);
+
+    // ── Services ────────────────────────────────────────────────
+
+    /// <summary>The scheduled task the installer creates, and how it is doing.</summary>
+    public IReadOnlyList<ComponentStatus> Components { get; private set; } =
+        InstalledComponents.All.Select(c => new ComponentStatus(c, "Checking…", "", "")).ToList();
+
+    /// <summary>A task the user cannot read: SYSTEM tasks are readable only by administrators.</summary>
+    public bool ServicesNeedUnlock => IsReadOnly && Components.Any(c => c.State == "Unknown");
+
+    public async Task LoadComponentsAsync()
+    {
+        Components = await ComponentStatusReader.ReadAllAsync();
+        OnPropertyChanged(nameof(Components));
+    }
 
     // ── Save Status ─────────────────────────────────────────────
 
@@ -60,6 +79,7 @@ public partial class PrefsViewModel : ObservableObject
     {
         Settings = SettingsCatalog.Load();
         OnPropertyChanged(nameof(Settings));
+        OnPropertyChanged(nameof(HasPolicySettings));
     }
 
     /// <summary>
