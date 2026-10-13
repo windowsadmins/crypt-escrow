@@ -11,21 +11,22 @@ namespace CryptEscrow.Tests.Gui;
 public class PrefsElevationTests
 {
     [Theory]
-    [InlineData(true, false, true)]
-    [InlineData(true, true, false)]
-    [InlineData(false, false, false)]
-    [InlineData(false, true, false)]
-    public void EditableOnlyWhenElevatedAndNotManaged(bool elevated, bool managed, bool expected) =>
-        PrefsElevation.CanEdit(elevated, managed).Should().Be(expected);
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void EditableUnlessManagedWithoutElevation(bool managed, bool expected) =>
+        PrefsElevation.CanEdit(managed).Should().Be(expected);
 
     [Fact]
-    public void RelaunchAsksForElevationAndOpensOnPrefs()
+    public void SaveRelaunchAsksForElevationAndAppliesThePayloadWithoutAWindow()
     {
-        var start = PrefsElevation.BuildElevatedRelaunch(@"C:\Program Files\Crypt\Managed Encryption Escrow.exe");
+        var start = PrefsElevation.BuildApplySettings(
+            @"C:\Program Files\Crypt\Managed Encryption Escrow.exe", @"C:\Temp\changes.json");
 
         start.Verb.Should().Be("runas");
         start.UseShellExecute.Should().BeTrue();
-        PrefsElevation.OpensOnPrefs(start.ArgumentList).Should().BeTrue();
+        PrefsElevation.ApplySettingsPath(start.ArgumentList.ToList()).Should().Be(@"C:\Temp\changes.json");
+        PrefsElevation.ApplySettingsPath([]).Should().BeNull();
+        PrefsElevation.ApplySettingsPath(["--apply-settings"]).Should().BeNull();
     }
 
     [Fact]
@@ -176,7 +177,7 @@ public class SettingsCatalogTests
 
         state.IsManaged.Should().BeTrue();
         state.FieldValue.Should().Be("https://policy.example.com");
-        PrefsElevation.CanEdit(isElevated: true, state.IsManaged).Should().BeFalse();
+        PrefsElevation.CanEdit(state.IsManaged).Should().BeFalse();
         state.SourceCaption.Should().BeEmpty("the tab's policy banner covers managed fields");
     }
 

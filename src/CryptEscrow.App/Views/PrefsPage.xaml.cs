@@ -26,8 +26,6 @@ public sealed partial class PrefsPage : Page
             AppIcon.Source = new BitmapImage(new Uri(iconPath));
 
         VersionText.Text = ViewModel.VersionDisplay;
-        ReadOnlyBanner.Visibility = ViewModel.IsReadOnly ? Visibility.Visible : Visibility.Collapsed;
-        ElevatedNote.Visibility = ViewModel.IsElevated ? Visibility.Visible : Visibility.Collapsed;
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -51,21 +49,38 @@ public sealed partial class PrefsPage : Page
         {
             ServicesList.ItemsSource = ViewModel.Components;
             RefreshServicesButton.IsEnabled = true;
-            ServicesAccessHint.Visibility = ViewModel.ServicesNeedUnlock ? Visibility.Visible : Visibility.Collapsed;
+            ServicesAccessHint.Visibility = ViewModel.ServicesNeedAdmin ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 
-    private void UnlockButton_Click(object sender, RoutedEventArgs e)
+    // ── Save ────────────────────────────────────────────────────
+
+    private async void SaveButton_Click(object sender, RoutedEventArgs e)
     {
-        // Once the elevated copy has started (UAC accepted), this read-only instance closes.
-        // A cancelled UAC prompt returns false and the tab simply stays read-only.
-        if (ViewModel.TryRelaunchElevated())
-        {
-            Application.Current.Exit();
-            return;
-        }
-        UnlockErrorText.Text = ViewModel.UnlockError;
-        UnlockErrorText.Visibility = ViewModel.HasUnlockError ? Visibility.Visible : Visibility.Collapsed;
+        SaveButton.IsEnabled = DiscardButton.IsEnabled = false;
+        // A declined UAC prompt or a failure keeps the edits on screen and pending.
+        if (await ViewModel.SaveAsync())
+            Reload();
+        else
+            UpdateSaveBar();
+        SaveButton.IsEnabled = DiscardButton.IsEnabled = true;
+    }
+
+    private void DiscardButton_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.DiscardPending();
+        Reload();
+    }
+
+    private void UpdateSaveBar()
+    {
+        SaveButtons.Visibility = ViewModel.HasPendingChanges ? Visibility.Visible : Visibility.Collapsed;
+        SaveStatusText.Text = ViewModel.HasPendingChanges && !ViewModel.HasSaveMessage
+            ? "You have unsaved changes."
+            : ViewModel.SaveMessage;
+        SaveStatusText.Foreground = (Brush)Application.Current.Resources[
+            ViewModel.SaveFailed && ViewModel.HasSaveMessage ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush"];
+        SaveBar.Visibility = ViewModel.HasPendingChanges || ViewModel.HasSaveMessage ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ── Cards ───────────────────────────────────────────────────
@@ -79,10 +94,7 @@ public sealed partial class PrefsPage : Page
         Fill(LoggingCard, SettingsCatalog.Logging, "");
         PolicyBanner.Visibility = ViewModel.HasPolicySettings ? Visibility.Visible : Visibility.Collapsed;
 
-        SaveStatusText.Text = ViewModel.SaveMessage;
-        SaveStatusText.Visibility = ViewModel.HasSaveMessage ? Visibility.Visible : Visibility.Collapsed;
-        SaveStatusText.Foreground = (Brush)Application.Current.Resources[
-            ViewModel.SaveFailed ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush"];
+        UpdateSaveBar();
     }
 
     private void Fill(StackPanel card, string group, string glyph)
@@ -127,7 +139,7 @@ public sealed partial class PrefsPage : Page
                     IsOn = state.ToggleValue,
                     IsEnabled = editable
                 };
-                toggle.Toggled += (_, _) => SaveLater(state, toggle.IsOn ? "true" : "false");
+                toggle.Toggled += (_, _) => Stage(state, toggle.IsOn ? "true" : "false");
                 card.Children.Add(toggle);
                 break;
 
@@ -145,7 +157,7 @@ public sealed partial class PrefsPage : Page
                 number.ValueChanged += (_, args) =>
                 {
                     var value = double.IsNaN(args.NewValue) ? null : ((int)args.NewValue).ToString();
-                    if (value != state.FieldValue) SaveLater(state, value);
+                    Stage(state, value);
                 };
                 card.Children.Add(number);
                 break;
@@ -161,7 +173,7 @@ public sealed partial class PrefsPage : Page
                 combo.SelectionChanged += (_, _) =>
                 {
                     var value = combo.SelectedIndex <= 0 ? null : (string)combo.SelectedItem;
-                    if (!string.Equals(value, state.FieldValue, StringComparison.OrdinalIgnoreCase)) SaveLater(state, value);
+                    Stage(state, value);
                 };
                 card.Children.Add(combo);
                 break;
@@ -176,11 +188,12 @@ public sealed partial class PrefsPage : Page
                     var secret = new PasswordBox { PlaceholderText = "Enter a new value to replace" };
                     secret.LostFocus += (_, _) =>
                     {
-                        if (!string.IsNullOrEmpty(secret.Password)) SaveLater(state, secret.Password);
+                        if (!string.IsNullOrEmpty(secret.Password)) Stage(state, secret.Password);
                     };
-                    var clear = new Button { Content = "Clear", IsEnabled = state.MachineValue is not null };
+                    // Unelevated, whether a secret is saved cannot be read, so Clear is always offered.
+                    var clear = new Button { Content = "Clear", IsEnabled = !ViewModel.IsElevated || state.MachineValue is not null };
                     Grid.SetColumn(clear, 1);
-                    clear.Click += (_, _) => SaveLater(state, null);
+                    clear.Click += (_, _) => Stage(state, null);
                     row.Children.Add(secret);
                     row.Children.Add(clear);
                     card.Children.Add(row);
@@ -197,7 +210,7 @@ public sealed partial class PrefsPage : Page
                 text.LostFocus += (_, _) =>
                 {
                     var value = string.IsNullOrWhiteSpace(text.Text) ? null : text.Text.Trim();
-                    if (value != state.FieldValue) SaveLater(state, value);
+                    Stage(state, value);
                 };
                 card.Children.Add(text);
                 break;
@@ -212,13 +225,14 @@ public sealed partial class PrefsPage : Page
             card.Children.Add(Caption(note, primary: false));
     }
 
-    /// <summary>Saves after the current event finishes, then rebuilds the cards.</summary>
-    private void SaveLater(SettingState state, string? value) =>
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            ViewModel.Save(state, value);
-            Reload();
-        });
+    /// <summary>Holds an edit as pending until Save; the cards keep showing it.</summary>
+    private void Stage(SettingState state, string? value)
+    {
+        ViewModel.SetPending(state, value);
+        if (ViewModel.HasSaveMessage && !ViewModel.SaveFailed)
+            ViewModel.SaveMessage = "";
+        UpdateSaveBar();
+    }
 
     private static TextBlock Caption(string text, bool primary, double top = 0) => new()
     {

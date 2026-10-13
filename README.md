@@ -144,7 +144,7 @@ Options:
 
 `Managed Encryption Escrow.exe` installs beside `checkin.exe` in `C:\Program Files\Crypt` and adds a Start menu shortcut. It has three tabs.
 
-- **Prefs** shows every setting. It opens read-only; **Unlock** relaunches it as administrator, and changes then save to `HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings`. A setting that policy sets shows the policy value and stays locked. The API key is never displayed: once unlocked, the tab only says whether one is saved. The PFX passphrase stays in Credential Manager and the app does not read it.
+- **Prefs** shows every setting. Any setting that policy does not set can be edited in the normal app; **Save** writes the changes to `HKLM\SOFTWARE\Crypt\ManagedEncryption\Settings` and asks for administrator approval at that point (declining keeps the changes unsaved). A setting that policy sets shows the policy value in gray and cannot be changed, and one line at the top says so. The API key is never displayed: an app running as administrator only says whether one is saved. The PFX passphrase stays in Credential Manager and the app does not read it. A read-only **Services** card shows the scheduled task the installer registers, with its state, last result and schedule; reading the task's status needs administrator rights.
 - **Run** runs one of three operations as administrator and streams its log: **Escrow now** (`escrow --force`), **Verify escrow** (`verify`) and **Rotate key** (`rotate`, after a confirmation; old keys are removed only if *Remove old recovery keys after rotation* is on).
 - **Logs** lists the log folder one day per session, newest first, with lines coloured by level.
 

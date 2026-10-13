@@ -38,13 +38,13 @@ public sealed record SettingState(
     public bool ToggleValue => ConfigService.ParseBool(FieldValue) ?? ConfigService.ParseBool(EffectiveValue) ?? false;
 
     /// <summary>
-    /// For a secret, whether one is saved, and only once the app is elevated. The value
+    /// For a secret, whether one is saved; only an elevated app can read that. The value
     /// itself is never read into the app's view.
     /// </summary>
     public string SecretStatus(bool isElevated)
     {
         if (!isElevated)
-            return "Unlock to see whether this is saved";
+            return "Only administrators can see whether this is set";
         return MachineValue is not null ? "Saved" : "Not saved";
     }
 

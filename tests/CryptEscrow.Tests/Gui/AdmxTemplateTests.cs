@@ -161,7 +161,7 @@ public class PolicyLocksEveryFieldTests
         state.FieldValue.Should().Be(expected);
         if (definition.Kind == SettingKind.Toggle)
             state.ToggleValue.Should().BeFalse();
-        PrefsElevation.CanEdit(isElevated: true, state.IsManaged).Should().BeFalse();
+        PrefsElevation.CanEdit(state.IsManaged).Should().BeFalse();
         var save = () => SettingsCatalog.Save(name, "changed");
         save.Should().Throw<InvalidOperationException>();
     }
